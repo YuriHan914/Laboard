@@ -1,0 +1,9 @@
+PyQt6>=6.7
+# Model tab: netron draws the graph in an embedded web view (pure JavaScript; no GPU, CUDA or TensorRT needed).
+# PyQt6-WebEngine must have the same minor version as PyQt6 (e.g. both 6.11).
+PyQt6-WebEngine>=6.7
+netron>=8.0
+onnx>=1.15                  # ONNX properties / parameter counts (graph only, weights are not loaded)
+msgpack>=1.0                # Flax .msgpack parameter counts
+psycopg2-binary>=2.9        # [db] tables; optional
+PyYAML>=6.0                 # yaml run configs; optional
