@@ -212,9 +212,12 @@ class FileList(Box):
             self.list.addWidget(more)
 
 
+WIDTH = 320  # built width of the left panel (Home's git history and Model's properties match it)
+
+
 def build(app):
     side = QWidget()
-    side.setFixedWidth(320)
+    side.setFixedWidth(WIDTH)
     lay = vbox(spacing=12)
     if app.s.tab == "home" and store.PROJECT:
         lay.addWidget(_project_card(app))

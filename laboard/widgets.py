@@ -261,6 +261,7 @@ class Segmented(Box):
         lay = hbox(spacing=gap, margins=(outer,) * 4)
         super().__init__(bg="surf2", radius=999, layout=lay)
         self.setSizePolicy(QSizePolicy.Policy.Preferred if expand else QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.on, self.off, self.items = on, off, {}  # key -> (segment box, its label)
         for key, label in options:
             sel = key == current
             bg, fg = on if sel else off
@@ -272,6 +273,15 @@ class Segmented(Box):
             item = Box(bg=bg, radius=999, layout=inner, on_click=(lambda k=key: on_select(k)) if on_select else None)
             inner.setContentsMargins(pad[1], pad[0], pad[1], pad[0])
             lay.addWidget(item, 1 if expand else 0)
+            self.items[key] = (item, lbl)
+
+    def select(self, current):
+        """Show ``current`` as the chosen segment, in place (for a caller that doesn't re-render on select)."""
+        for key, (item, lbl) in self.items.items():
+            bg, fg = self.on if key == current else self.off
+            item.restyle(bg=bg)
+            lbl._color = fg
+            lbl.setStyleSheet(f"color:{col(fg)};background:transparent;")
 
 
 class LineEdit(QLineEdit):
@@ -494,19 +504,27 @@ class Flow(QLayout):
     equal columns (fewer when they don't fit), except blocks given their own width (``set_width``): those keep it,
     the others in their row share what is left, and a block that would get less than its width wraps to the next
     row. Otherwise each row shares its spare width by stretch. A row is as tall as its tallest block; ``fill``
-    stretches the others to match, else they keep their own height."""
+    stretches the others to match, else they keep their own height. ``vspacing`` is the gap between rows
+    (default: ``spacing``)."""
 
-    def __init__(self, spacing=12, per_row=None, fill=True):
+    def __init__(self, spacing=12, per_row=None, fill=True, vspacing=None):
         super().__init__()
         self.setContentsMargins(0, 0, 0, 0)
         self.blocks = []  # [QLayoutItem, min width, stretch]
         self.own = {}  # widget -> width the user gave it (grid mode)
         self.filling = set()  # widgets as tall as their row even without ``fill``
+        self.steady = set()  # grid mode: widgets that keep a column's width while their neighbours take their own
         self.gap, self.per_row, self.fill = spacing, per_row, fill
+        self.vgap = spacing if vspacing is None else vspacing
 
     def set_fill(self, w, on):
         """Make block ``w`` as tall as its row (on) or its own height (off), whatever ``fill`` says."""
         (self.filling.add if on else self.filling.discard)(w)
+        self.invalidate()
+
+    def set_steady(self, w, on):
+        """Grid mode: block ``w`` keeps a column's width (on) instead of sharing what its row's other blocks leave."""
+        (self.steady.add if on else self.steady.discard)(w)
         self.invalidate()
 
     def set_width(self, w, width):
@@ -568,9 +586,11 @@ class Flow(QLayout):
         n = self._cols(width) if self.per_row else None
         if n and not self.own:
             return [shown[i:i + n] for i in range(0, len(shown), n)]
+        colw = (width - self.gap * (n - 1)) // n if n else 0
         rows, row, used = [], [], 0
         for b in shown:
-            need = min(self.own.get(b[0].widget()) or b[1], width)
+            w = b[0].widget()
+            need = min(self.own.get(w) or (colw if w in self.steady else 0) or b[1], width)
             if row and (used + self.gap + need > width or len(row) == n):
                 rows.append(row)
                 row, used = [], 0
@@ -586,9 +606,11 @@ class Flow(QLayout):
         for row in rows:
             own = [self.own.get(it.widget()) for it, _, _ in row] if cols else []
             if any(own):  # rows packed so the others still get their width (_rows)
+                colw = (width - self.gap * (cols - 1)) // cols
+                own = [o or (colw if it.widget() in self.steady else None) for o, (it, _, _) in zip(own, row)]
                 free = own.count(None)
                 rest = width - self.gap * (len(row) - 1) - sum(min(o, width) for o in own if o)
-                widths = [min(o, width) if o else rest // free for o in own]
+                widths = [min(o, width) if o else rest // max(free, 1) for o in own]
             elif cols:
                 widths = [(width - self.gap * (cols - 1)) // cols] * len(row)
             else:
@@ -605,8 +627,8 @@ class Flow(QLayout):
                 for (it, _, _), w, h in zip(row, widths, heights):
                     it.setGeometry(QRect(x, y, w, tall if self.fill or it.widget() in self.filling else h))
                     x += w + self.gap
-            y += tall + self.gap
-        return max(y - self.gap - y0, 0)
+            y += tall + self.vgap
+        return max(y - self.vgap - y0, 0)
 
 
 def grid(cols, spacing=12, hspacing=None):
@@ -678,8 +700,8 @@ class SideHandle(QWidget):
     """The 12px gutter beside a side panel. Dragging its line resizes ``panel`` live, from hidden up to 70% of the
     window as it is right now; a panel dragged wider squeezes the centre and then the other panel
     (``app.drag_side``). Double-click toggles hidden / the width the panel was built with. The width is kept in
-    ``app.side_widths[key]`` as a share of ``app.side_scale()``, so the panel follows the window as it resizes
-    (``app.fit_sides``) and survives re-renders."""
+    ``app.side_widths[key]`` as a share of ``app.side_scale()`` and survives re-renders; the panel gets it while the
+    window has room, and gives way when it doesn't (``app.fit_sides``)."""
 
     SNAP = 40  # narrower than this (px) the panel just hides
     MAX_SHARE = 0.7  # of the current window width
@@ -689,6 +711,7 @@ class SideHandle(QWidget):
         super().__init__()
         self.panel, self.app, self.key, self.right = panel, app, key, right
         self.default = panel.minimumWidth() / self.DESIGN_WIDTH
+        self.closed = False  # a panel with nothing to show (app.show_right): hidden with its gutter
         self.px = 0  # the panel's width as last applied
         self.hover = self.drag = None
         self.setFixedWidth(12)

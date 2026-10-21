@@ -2,7 +2,7 @@
 from PyQt6.QtCore import Qt, QUrl
 from PyQt6.QtGui import QDesktopServices
 
-from .. import modelinfo, netronview, store, torchgraph
+from .. import modelinfo, netronview, sidebar, store, torchgraph
 from ..charts import Meter
 from ..widgets import Box, Button, Label, Scroll, Segmented, card, empty_state, hbox, stat_tile, vbox, wrap
 
@@ -76,5 +76,5 @@ def build(app):
         side.addWidget(_layers(meta["layers"]))
     side.addStretch(1)
     side = Scroll(wrap(side))
-    side.setFixedWidth(400)
+    side.setFixedWidth(sidebar.WIDTH)  # as wide as the left panel
     return _graph_card(app, sel, file_info["path"], fmt), side

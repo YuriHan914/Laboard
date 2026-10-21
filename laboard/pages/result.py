@@ -57,7 +57,8 @@ class RecordTable(Box):
     their contents (within limits), and the table scrolls sideways when the centre is narrower than they are.
     A big table (FOLD_COLS+ columns and FOLD_ROWS+ rows) starts folded: a chart-sized card of its first PREVIEW
     rows and PREVIEW_COLS columns, squeezed to fit (one cell of ``flow``, the chart grid). A click on it unfolds it
-    to the full width and back, and that stays while the page is shown."""
+    to the full width and back, and that stays while the page is shown. It has just those two sizes: folded, it
+    keeps a chart cell's size whatever the charts beside it do."""
 
     PAGE = 50
     FOLD_COLS, FOLD_ROWS, PREVIEW, PREVIEW_COLS = 5, 10, 6, 5
@@ -105,16 +106,16 @@ class RecordTable(Box):
         self._fit_flow()
 
     def place(self, flow, chart_h=0):
-        """Sit in ``flow`` (the chart grid): one cell while folded, as tall as the charts in its row (or ``chart_h``,
-        a chart card's height, on a row of its own); a whole row at its own height when open."""
+        """Sit in ``flow`` (the chart grid): one cell while folded, a column wide and ``chart_h`` (a chart card's
+        default height) tall; a whole row at its own height when open."""
         self.flow, self.fold_h = flow, chart_h
         flow.add(self, 360)
+        flow.set_steady(self, True)  # a chart widened beside it doesn't squeeze it
         self._fit_flow()
 
     def _fit_flow(self):
         if self.flow is not None:
             self.flow.set_width(self, None if self.folded else 10 ** 6)  # Flow caps it at the row's width
-            self.flow.set_fill(self, self.folded)
             self.setMinimumHeight(self.fold_h if self.folded else 0)
 
     def _row(self, vals, header=False):

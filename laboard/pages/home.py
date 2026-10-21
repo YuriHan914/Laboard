@@ -3,11 +3,11 @@ from PyQt6.QtCore import QRectF, Qt
 from PyQt6.QtGui import QPainter, QPen
 from PyQt6.QtWidgets import QSizePolicy, QWidget
 
-from .. import store
+from .. import sidebar, store
 from ..charts import AccuracyChart, DataChangeChart, StackedBar
 from ..theme import T, qc
-from ..widgets import (Box, Dot, Flow, HLine, Label, Pill, Scroll, Segmented, card, caption, empty_state, grid, hbox, link,
-                       mono_span, stat_tile, vbox, wrap)
+from ..widgets import (Box, Dot, Flow, HLine, Label, Pill, Scroll, Segmented, card, caption, elided, empty_state, grid, hbox,
+                       link, mono_span, stat_tile, vbox, wrap)
 
 D = store.DASH
 
@@ -18,10 +18,19 @@ def _head(title, on_open, *extra):
 
 
 def _tiles(*tiles):
-    g = grid(3, spacing=10)
-    for i, t in enumerate(tiles):
-        g.addWidget(stat_tile(*t), 0, i)
+    # three per row, fewer (wrapping) when the card is narrow, as Result's charts do
+    g = Flow(spacing=10, per_row=3)
+    for t in tiles:
+        g.add(stat_tile(*t))
     return g
+
+
+def _legend(*items, spacing=16):
+    """Legend entries left to right, wrapping onto the next line when the card is too narrow for them."""
+    f = Flow(spacing=spacing, fill=False, vspacing=6)
+    for it in items:
+        f.add(it, stretch=0)
+    return f
 
 
 def _summary_card(*items):
@@ -37,15 +46,13 @@ def _missing(app, title, tab, text):
 def _data_card(app):
     if not store.DATA_FOLDERS:
         return _missing(app, "Data", "data", "No data found in the [db] table or paths.data.")
-    legend = hbox(spacing=16)
-    for name, n, dot in D["splits"]:
-        legend.addLayout(hbox(Dot(dot, 8), 6, Label(name, 12, 400, "body"), 4, Label(n, 12, 600), align=Qt.AlignmentFlag.AlignVCenter))
-    legend.addStretch(1)
+    legend = _legend(*[hbox(Dot(dot, 8), 6, Label(name, 12, 400, "body"), 4, Label(n, 12, 600), align=Qt.AlignmentFlag.AlignVCenter)
+                       for name, n, dot in D["splits"]])
     footer = vbox(HLine(), 12, legend)
     note = Label(D["task_note"], 13, 400, "body", wrap=True)
     cap, src = D["changes_caption"]
     changes = D["data_changes"]
-    chart = vbox(hbox(caption(cap), "stretch", caption(src)), 6,
+    chart = vbox(hbox(caption(cap), "stretch", 12, elided(src, 12, 400, "mute")), 6,
                  DataChangeChart(changes, vmax=max(max(a, r) for _, _, a, r in changes))) if changes else vbox()
     return _summary_card(
         vbox(_head("Data", lambda: app.set(tab="data"), Pill(app.task, "surf2", "ink")), 8, note),
@@ -56,11 +63,9 @@ def _model_card(app):
     if not store.MODEL_FILES:
         return _missing(app, "Model", "model", "No model files found in paths.models.")
     total = sum(n for _, n, _, _ in D["formats"])
-    legend = hbox(spacing=18)
-    for name, n, ext, c in D["formats"]:
-        legend.addLayout(hbox(Dot(c, 8), 6, Label(name, 13, 400, "body"), 4, Label(str(n), 13, 600), 4,
-                              Label(ext, 11, 400, "mute", mono=True), align=Qt.AlignmentFlag.AlignVCenter))
-    legend.addStretch(1)
+    legend = _legend(*[hbox(Dot(c, 8), 6, Label(name, 13, 400, "body"), 4, Label(str(n), 13, 600), 4,
+                            Label(ext, 11, 400, "mute", mono=True), align=Qt.AlignmentFlag.AlignVCenter)
+                       for name, n, ext, c in D["formats"]], spacing=18)
 
     def row(cells, header=False):
         g = grid(4, spacing=0, hspacing=10)
@@ -95,11 +100,10 @@ def _run_card(app):
         return _missing(app, "Latest run", "run", "No runs found in paths.runs.")
     run_name, commit, rest = D["run_note"]
     note = Label(f"{run_name} · commit {mono_span(commit)} · {rest}", 13, 400, "body", rich=True, wrap=True)
-    g = grid(2, spacing=0, hspacing=24)
-    for i, (k, v) in enumerate(D["hp"]):
-        r, c = i // 2, i % 2
-        g.addLayout(vbox(hbox(Label(k, 13, 400, "body"), 12, (Label(v, 13, 400, mono=True, align=Qt.AlignmentFlag.AlignRight, elide=True), 1),
-                              margins=(0, 7, 0, 7)), HLine()), r, c)
+    g = Flow(spacing=24, per_row=2, vspacing=0)  # one column when the card is narrow
+    for k, v in D["hp"]:
+        g.add(vbox(hbox(Label(k, 13, 400, "body"), 12, (Label(v, 13, 400, mono=True, align=Qt.AlignmentFlag.AlignRight, elide=True), 1),
+                        margins=(0, 7, 0, 7)), HLine()), 220)
     return _summary_card(vbox(_head("Latest run", lambda: app.set(tab="run")), 8, note), g)
 
 
@@ -109,7 +113,7 @@ def _result_card(app):
     rows = D["accuracy_csv"]
     if not rows:  # no accuracy.csv among the results
         return _summary_card(
-            vbox(_head("Result", lambda: app.set(tab="result"), Label(store.RESULT_ROOT, 12, 400, "mute", mono=True)), 8,
+            vbox(_head("Result", lambda: app.set(tab="result"), elided(store.RESULT_ROOT, 12, 400, "mute", mono=True)), 8,
                  Label("No accuracy.csv found in the results folder. Open the Result tab to browse csv, logs and images.",
                        13, 400, "body", wrap=True)),
             _tiles(*D.get("result_counts", [])))
@@ -124,9 +128,9 @@ def _result_card(app):
 
     sq = Box(bg="grid", radius=2)
     sq.setFixedSize(10, 10)
-    legend = hbox(key(line("ink"), "train loss"), 18, key(line("c2"), "valid loss"), 18, key(sq, "inference ms / image"), "stretch")
+    legend = _legend(key(line("ink"), "train loss"), key(line("c2"), "valid loss"), key(sq, "inference ms / image"), spacing=18)
     return _summary_card(
-        vbox(_head("Result", lambda: app.set(tab="result"), Label(D["accuracy_path"], 12, 400, "mute", mono=True)), 10, legend),
+        vbox(_head("Result", lambda: app.set(tab="result"), elided(D["accuracy_path"], 12, 400, "mute", mono=True)), 10, legend),
         AccuracyChart(rows),
         _tiles((f"Best valid loss · {D['best_valid'][0]}", D["best_valid"][1]), (f"Fastest · {D['fastest'][0]}", D["fastest"][1]),
                ("Rows in csv", str(len(rows)))))
@@ -170,12 +174,42 @@ def _history(app):
         return any(p.endswith(target) or p == target for p, *_ in c[5])
 
     last_touch = next((c for c in store.COMMITS if touches(c)), store.COMMITS[0] if store.COMMITS else None)
-    seg = Segmented([("all", "All"), ("file", "This file")], s.hist_filter, lambda k: app.set(hist_filter=k))
     lst = vbox()
+    rows = {}  # commit hash -> (row box, its content layout, commit, changed-files panel once built)
+
+    def details(c):
+        files = vbox(spacing=2, margins=(10, 6, 10, 6))
+        for path, add, rem in c[5]:
+            files.addLayout(hbox(Label(path, 12.5, mono=True), "stretch",
+                                 Label(f"<span style='color:#2ead4b'>{add}</span> <span style='color:#d03238'>{rem}</span>",
+                                       12.5, mono=True, rich=True)))
+        return wrap(vbox(Box(bg="surf", radius=10, layout=files), margins=(0, 8, 0, 0)))
+
+    def show_open(h, on):
+        row, content, c, panel = rows[h]
+        row.restyle(bg="surf2" if on else None, hover=None if on else "surf2")
+        if on and panel is None:  # built the first time it opens
+            panel = details(c)
+            content.addWidget(panel)
+            rows[h] = (row, content, c, panel)
+        if panel is not None:
+            panel.setVisible(on)
+
+    def toggle(h):
+        # opened and closed in place: a re-render would rebuild the whole window (a flash) and scroll the list to the top
+        was, s.open_commit = s.open_commit, None if s.open_commit == h else h
+        for k in {was, s.open_commit} & rows.keys():
+            show_open(k, k == s.open_commit)
+
+    def show_filter(k):
+        # every commit is built; the filter only hides rows, in place like toggle
+        s.hist_filter = k
+        seg.select(k)
+        for row, _, c, _ in rows.values():
+            row.setVisible(k == "all" or touches(c))
+
+    seg = Segmented([("all", "All"), ("file", "This file")], s.hist_filter, show_filter)
     for c in store.COMMITS[app.view_index():]:  # history up to the commit being shown
-        if s.hist_filter == "file" and not touches(c):
-            continue
-        is_open = c[0] == s.open_commit
         title = hbox(spacing=6, align=Qt.AlignmentFlag.AlignVCenter)
         title.addWidget(Label(c[1], 14, 600))
         for ref, k in c[6]:
@@ -187,17 +221,12 @@ def _history(app):
         n = len(c[5])
         meta = Label(f"{mono_span(c[0], 'body')} · {c[2]} · {c[4]} · {n} file{'s' if n != 1 else ''}", 12, 400, "mute", rich=True, lh=18)
         content = vbox(title, meta, margins=(0, 0, 0, 10))
-        if is_open:
-            files = vbox(spacing=2, margins=(10, 6, 10, 6))
-            for path, add, rem in c[5]:
-                files.addLayout(hbox(Label(path, 12.5, mono=True), "stretch",
-                                     Label(f"<span style='color:#2ead4b'>{add}</span> <span style='color:#d03238'>{rem}</span>",
-                                           12.5, mono=True, rich=True)))
-            content.addSpacing(8)
-            content.addWidget(Box(bg="surf", radius=10, layout=files))
-        row = Box(bg="surf2" if is_open else None, radius=12, hover=None if is_open else "surf2",
-                  layout=hbox(Timeline(c is last_touch), 12, (content, 1), margins=(8, 8, 8, 0)),
-                  on_click=lambda h=c[0]: app.set(open_commit=None if s.open_commit == h else h))
+        row = Box(bg=None, radius=12, layout=hbox(Timeline(c is last_touch), 12, (content, 1), margins=(8, 8, 8, 0)),
+                  on_click=lambda h=c[0]: toggle(h))
+        rows[c[0]] = (row, content, c, None)
+        show_open(c[0], c[0] == s.open_commit)
+        if s.hist_filter == "file" and not touches(c):
+            row.hide()  # only ever hide here: showing a widget with no parent yet opens it as a window for a moment
         lst.addWidget(row)
     if not store.COMMITS:
         lst.addWidget(Label(f"{store.PROJECT['path']} is not a git repository.", 13, 400, "body", wrap=True))
@@ -205,7 +234,7 @@ def _history(app):
     body = vbox(hbox(Label("Git history", 16, 600, lh=24), "stretch", seg, margins=(20, 18, 20, 10), align=Qt.AlignmentFlag.AlignVCenter))
     body.addWidget(Scroll(wrap(vbox(lst, margins=(12, 0, 12, 12)))), 1)
     hist = Box(bg="surf", radius=16, layout=body)
-    hist.setFixedWidth(480)
+    hist.setFixedWidth(sidebar.WIDTH)  # as wide as the left panel
     return hist
 
 

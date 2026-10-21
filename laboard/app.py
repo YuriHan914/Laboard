@@ -231,12 +231,12 @@ class MainWindow(QMainWindow):
         if frameless:
             self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
         self.resize(1920, 1080)
-        self.setMinimumHeight(760)  # width: the top bar up to the Setting tab; narrower pages scroll sideways
+        self.setMinimumHeight(760)  # width: the top bar up to the Setting tab, which leaves the centre CENTER_MIN
         self._status_msg = None
         self.dialog = None
         self.side_widths = {}  # side panel widths the user dragged, by SideHandle key, as shares of side_scale()
-        self.top_full_width = 0
         self.handles, self.page, self.center_min = [], None, CENTER_MIN
+        self.top_min = 0  # the top bar's minimum width, which is the window's
         self._left_page = False  # the next render shows another tab: start its scroll at the left
         netronview.attach(self)  # before the window is shown, so adding the graph later doesn't recreate the window
         self.reset_state(start_tab)
@@ -309,20 +309,21 @@ class MainWindow(QMainWindow):
         self.load_project(store.PROJECT["toml"], commit)
 
     def side_scale(self):
-        """The width side panels scale with: the window's, but no narrower than where the top bar still shows the
-        branch chip. Below that the panels stop shrinking and the page scrolls sideways."""
-        return max(self.width(), self.top_full_width)
+        """What side panel shares are of: the design width, so a share is a fixed size in px (a panel doesn't grow
+        or shrink with the window; it only gives way when there's no room, see fit_sides)."""
+        return SideHandle.DESIGN_WIDTH
 
     def side_room(self):
-        """Width left for the side panels once the margins, gutters and a 1px centre are taken out of side_scale()."""
-        return self.side_scale() - 24 - 12 * len(self.handles) - 1
+        """Width left for the side panels once the margins, the open panels' gutters and a 1px centre are taken
+        out of the window's."""
+        return self.width() - 24 - 12 * sum(not h.closed for h in self.handles) - 1
 
     def drag_side(self, handle, w, start):
         """``handle``'s panel dragged to ``w`` px (``start``: every panel's width when the drag began). Widening it
         first narrows the centre down to its minimum, then the other panel as if the user dragged that one too
-        (hiding it under SNAP), and only then the centre below its minimum."""
+        (hiding it under SNAP); the centre never goes below its minimum."""
         scale, room = self.side_scale(), self.side_room()
-        w = max(0, min(w, handle.max_width(), room))
+        w = max(0, min(w, handle.max_width(), room + 1 - self.center_min))
         w = 0 if w < SideHandle.SNAP else w
         excess = w + sum(start[h] for h in self.handles if h is not handle) + self.center_min - 1 - room
         for h in self.handles:
@@ -335,19 +336,25 @@ class MainWindow(QMainWindow):
         self.fit_sides()
 
     def fit_sides(self):
-        """Size the side panels to their shares of side_scale(), each within its share of the window (SideHandle
-        max_width), and together never wider than side_room(): if they would be, both give way in proportion. The
-        centre keeps CENTER_MIN unless the panels were dragged into it, so the page only scrolls when the window
-        is narrower than side_scale()."""
-        want = [min(round(h.share() * self.side_scale()), h.max_width()) for h in self.handles]
-        room = max(self.side_room(), 0)
-        if sum(want) > room:
-            want = [w * room // sum(want) for w in want]
-        for h, w in zip(self.handles, want):
-            h.apply(w)
+        """Size the side panels to their own widths (shares of side_scale(), within SideHandle max_width) as far as
+        the window allows with the centre at center_min. The left panel is filled first and the right one gets
+        what is left: as the window narrows the right panel shrinks away first, then the left one; as it widens
+        the left one grows back to its width first, then the right one, a pixel at a time. A panel squeezed to
+        nothing hides with its gutter, and at the window's minimum width both are gone and the centre has it all,
+        so the page doesn't scroll sideways."""
+        centre = max(self.center_min, self.top_min - 24)  # the left panel reaches 0 as the window reaches its minimum
+        free = self.width() - 24 - centre  # for the panels and their gutters
+        for h in self.handles:  # left first
+            want = 0 if h.closed else min(round(h.share() * self.side_scale()), h.max_width())
+            w = max(0, min(want, free - 12))
+            # a gutter stays for a panel the user dragged shut (to drag it back), not for one with no room
+            show = not h.closed and free >= 12 and (w > 0 or want == 0)
+            h.apply(w if show else 0)
+            h.setVisible(show)
+            free -= (12 + w) if show else 0
         if self.page is not None:
             # at least 1px: Qt reads a minimum of 0 as unset and falls back to the content's own minimum
-            self.page.setMinimumWidth(max(1, min(self.center_min, room - sum(want) + 1)))
+            self.page.setMinimumWidth(max(1, min(self.center_min, free + centre)))
 
     def show_right(self, on):
         """Open the right panel (at the width it had) with its gutter, or close both: for a page whose panel only
@@ -358,7 +365,7 @@ class MainWindow(QMainWindow):
         elif not on and h.share() > 0:
             self.side_widths[h.key + ":last"] = h.share()
             self.side_widths[h.key] = 0
-        h.setVisible(on)
+        h.closed = not on  # fit_sides shows or hides it
         self.fit_sides()
 
     def resizeEvent(self, e):
@@ -438,13 +445,16 @@ class MainWindow(QMainWindow):
             self.handles.append(SideHandle(right, self, self.s.tab, right=True))
             body.addWidget(self.handles[1])
             body.addWidget(right)
-            if hasattr(page, "right_on"):  # a panel that only sometimes has something to show
-                self.show_right(page.right_on)
-        self.fit_sides()
-        # narrower than the panels + CENTER_MIN: the whole body (panels included) scrolls sideways
+        # fit_sides hides the panels before the centre would go below its minimum; scrolling sideways is only a fallback
+        # for a centre whose own minimum is wider than the window allows
         old_x = self.body_scroll.horizontalScrollBar().value() if old is not None and not self._left_page else 0
         self._left_page = False
+        # wrapped before the panels are shown or hidden: setVisible on a widget with no parent yet opens it as a
+        # window of its own for a moment (a popup that flashes on every re-render)
         self.body_scroll = Scroll(wrap(body), horizontal=True)
+        if right is not None and hasattr(page, "right_on"):  # a panel that only sometimes has something to show
+            self.show_right(page.right_on)
+        self.fit_sides()
         self.body_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         QTimer.singleShot(0, lambda: self.body_scroll.horizontalScrollBar().setValue(old_x))  # once the range is known
         lay.addWidget(self.body_scroll, 1)
@@ -489,7 +499,7 @@ class MainWindow(QMainWindow):
         right = Collapsing(chip, picker)
         row = hbox(tabs, 20, (right, 1), align=Qt.AlignmentFlag.AlignVCenter)
         bar.setLayout(hbox(brand, 28, (row, 1), margins=(24, 0, 20, 0)))
-        self.top_full_width = bar.minimumSizeHint().width() + right.full_width()
+        self.top_min = bar.minimumSizeHint().width()
         return bar
 
     def status_bar(self):
