@@ -9,7 +9,7 @@
 Setting 페이지에서 할 수 있는 일:
 
 - 프로젝트 파일 로드
-- 미리보기로 파일 내용 읽기
+- 파일의 값을 하나씩 수정하고, 결과를 새 파일로 저장
 - 파일이 가리키는 각 위치에서 Laboard가 무엇을 찾았는지 확인
 - 테마 전환
 
@@ -29,11 +29,33 @@ Setting 페이지에서 할 수 있는 일:
 | 파일이 없거나 형식이 잘못됨 | 상태 바에 오류가 표시되고, 이전 프로젝트가 그대로 유지됨 |
 | 로드 성공 | 모든 페이지가 다시 로드되고, 상태 바에 `Loaded <path>`와 메모가 표시됨 |
 
-메모의 예: *Nothing found in paths.runs*, *DB … unavailable; using paths.data*
+메모의 예: *Nothing found in Path.Runs*, *[Data] Type is not set*, *DB … unavailable (…)*.
+메모별 해결 방법은 [Data 문서의 자주 보는 알림](data.md#자주-보는-알림)을 보세요.
 
-## 미리보기
+## 프로젝트 파일
 
-로드한 파일을 읽기 전용으로 줄 번호와 함께 보여 줍니다. 섹션 머리글(`[project]`, `[paths]` 등)은 굵게 표시됩니다.
+로드한 파일을 두 가지로 보여 줍니다.
+
+- **Fields**는 모든 값을 섹션별로 보여 줍니다. 값 옆의 **Edit**를 누르면 수정 팝업이 뜹니다. **Save**(또는 Enter)는
+  값을 적용하고 프로젝트를 다시 로드하며, **Cancel**은 수정을 취소합니다.
+  - 목록은 고정입니다: 분류 프로젝트의 모든 key(저장소 루트의 `template.toml`에 있는 key)를 로드한 파일과 상관없이
+    같은 순서로 보여 줍니다. 파일에 없거나 비어 있는 key는 빈칸으로 나오고, 파일에만 있는 다른 key는 그 뒤에 나옵니다.
+    `[DB]` 섹션은 `[Project] DB`가 True일 때만 보입니다. `Table`은 `Type = "DB"`일 때만,
+    `[Prediction] Format`은 `Type = "Folder"`일 때만 보입니다.
+  - key나 값에 마우스를 올리면 어떤 값을 넣어야 하는지 설명이 나오고, Edit 팝업에도 같은 설명이 표시됩니다.
+    이 설명은 Laboard에 고정되어 있으며 파일 내용과 무관합니다.
+  - 적용한 값은 현재 세션에만 반영되고 디스크의 toml 파일은 바뀌지 않습니다. 머리글에 *Edited*가 표시되며,
+    **Load**를 누르면 파일을 다시 읽어 수정 내용이 사라집니다.
+  - **Save as…**(수정한 뒤에 나타남)는 수정된 프로젝트를 새 toml 파일(기본 `<이름>_edited.toml`)로 저장하고
+    그 파일을 로드합니다. 로드된 원래 파일에는 덮어쓰지 않습니다.
+  - `[Project] Task`, `[Project] DB`, `[Data] Type`, `[Prediction] Type`, `[Prediction] Format`은 드롭다운입니다.
+    파일에 없어도 목록에 나오며, 빈 항목을 고르면 그 key를 지웁니다.
+  - 나머지 값은 직접 입력합니다. 경로 값은 입력창 안의 폴더 아이콘으로 파일이나 폴더를 고를 수 있습니다:
+    `Type = "CSV"`면 파일, `Type = "Folder"`와 `[Path]`는 폴더.
+  - 주석, 순서, 형식은 그대로 두고 수정한 줄만 바뀝니다. 올바른 toml 값이 아니면 적용하지 않고 팝업에
+    이유를 표시합니다.
+  - Save로 다시 로드해도 스크롤 위치는 그대로 유지됩니다.
+- **Text**는 줄 번호가 붙은 읽기 전용 사본입니다. 섹션 머리글(`[Project]`, `[Path]` 등)은 굵게 표시됩니다.
 
 ## Detected
 
@@ -50,7 +72,8 @@ Setting 페이지에서 할 수 있는 일:
 | Results | *Found* / *Not found* |
 | TensorBoard | *Found*. 결과 폴더에 이벤트 파일이 있을 때 |
 | Weights & Biases | *Offline*. 결과 폴더에 `offline-run-*` 폴더가 있을 때 |
-| Labels / inference | *Found* (결과 파일, 일치한 파일 수, 열) / *Not found* |
+| Prediction | *Found* (`[Prediction] Type = …` · 소스 수 · 예측이 있는 파일 수 · 열) / *Not found*. 분류 프로젝트 |
+| Labels / inference | *Found* (결과 파일, 일치한 파일 수, 열) / *Not found*. 이전 형식 |
 
 ## Appearance
 
@@ -62,54 +85,139 @@ Setting 페이지에서 할 수 있는 일:
 
 ## 프로젝트 파일 작성법
 
-상대 경로는 toml 파일이 있는 폴더를 기준으로 해석합니다.
+프로젝트 파일은 toml 형식입니다. 저장소 루트의 `template.toml`에 모든 key가 빈 값으로 들어 있으니 복사해서
+시작하면 됩니다. Setting의 **Fields**에서도 같은 key를 같은 순서로 보여 주고 고칠 수 있습니다.
+
+- **이름 규칙:** 섹션과 key 이름은 첫 글자를 대문자로 씁니다(`DB`는 전부 대문자, 경로 섹션은 `[Path]`).
+  소문자로 써도 똑같이 읽습니다.
+- **경로:** 절대 경로, 또는 toml 파일이 있는 폴더 기준의 상대 경로입니다.
+- **빈 값:** 쓰지 않는 key는 `""`로 비워 둡니다. 비어 있는 key는 설정하지 않은 것으로 봅니다.
+- **True / False:** Laboard는 `True` / `False`를 씁니다. 표준 TOML의 `true` / `false`도 읽습니다.
+
+### 전체 예시 (분류 프로젝트)
 
 ```toml
-[project]
-name = "my-project"                # 기본값: 루트 폴더 이름
-root = "/path/to/repo"             # git 기록, 브랜치, 원격 저장소 정보를 여기서 가져옴
-                                   # 기본값: paths.* 중 첫 번째, 없으면 toml이 있는 폴더
+[Project]
+Name = "Anomaly-Detection"
+Root = "/mnt/data/github/Anomaly-Detection/test_projects"
+Task = "classification"            # classification | object detection | segmentation
+DB = False                         # [Data] / [Prediction]에서 Type = "DB"를 쓰면 True
 
-[paths]                            # 절대 경로, 또는 toml 기준 상대 경로
-data = "/path/to/data"
-models = "/path/to/models"
-runs = "/path/to/runs"
-results = "/path/to/results"
+[DB]                               # DB = True일 때만 사용 (Setting에서도 그때만 보임)
+DB = "supabase"
+DB_ip = "http://127.0.0.1:54323/"
 
-[git]                              # 선택 사항. git으로 알 수 없을 때 쓰는 대체값
-# branch = "main"                  # HEAD가 detached이거나 root가 git 저장소가 아닐 때
-# remote = "github.com/me/repo"    # origin 원격이 없을 때
+[Git]
+Remote = "github.com:YuriHan914/Anomaly-Detection.git"
+Branch = "main"
 
-[db]                               # 선택 사항. 접속 가능하면 paths.data보다 먼저 사용
-supabase = "http://127.0.0.1:54323/"   # 로컬 Supabase → 54322 포트의 Postgres에 접속
-table = "my_table"                 # 또는 "schema.table"
-# dsn = "postgresql://user:pw@host:5432/db"   # Supabase URL 대신 임의의 Postgres 사용
-# port / user / password / database / limit   # 덮어쓰기 (기본값: 54322 / postgres / postgres / postgres)
-# columns = { path = "file_path", label = "class", split = "type" }
+[Path]
+Models = "/mnt/data/github/Anomaly-Detection/test_projects/Models"
+Runs = "/mnt/data/github/Anomaly-Detection/test_projects/Runs"
+Results = "/mnt/data/github/Anomaly-Detection/test_projects/Results"
 
-[data]                             # 선택 사항
-# table = "index.csv"              # 파일 목록이 담긴 csv / tsv / jsonl / parquet
-# columns = { path = "img", label = "cls", split = "subset" }
+[Data]
+Type = "CSV"                       # CSV | DB | Folder
+File_path = "/mnt/data/github/Anomaly-Detection/test_projects/Data/semiconductor_AD_df.csv"
+Table = ""                         # Type = "DB"일 때만
+Label = "label"
 
-[models]                           # 선택 사항
-# extensions = [".pt", ".onnx"]
-
-[labels]                           # 선택 사항 ([lables]로 써도 읽음)
-result_file = "inference.csv"      # paths.results 아래의 이름 / 상대 경로 / glob. 일치하는 파일마다 하나의 소스
-infer = "classification"           # 나머지 키는 모두 Data 페이지에 표시할 열
-score = "AD_result"
-# path = "data_path"               # 행을 데이터 파일과 매칭할 열 (생략하면 추정)
-# label = "labels"                 # 레이블 열 (생략하면 추정)
+[Prediction]
+Type = "CSV"                       # CSV | DB | Folder
+Path = "inference.csv"
+Table = ""                         # Type = "DB"일 때만
+Format = ""                        # Type = "Folder"일 때만: txt | json
+Predict = "classification"
+Predict_score = "AD_score"
 ```
+
+### 섹션별 key
+
+**`[Project]`**
+
+| key | 넣을 값 |
+| --- | --- |
+| `Name` | 상단 바와 Home에 표시할 프로젝트 이름. 비우면 Root 폴더 이름 |
+| `Root` | 프로젝트 git 저장소 폴더. git 기록·브랜치·원격 정보를 여기서 가져옴. 비우면 데이터·`[Path]` 경로 중 첫 번째, 없으면 toml이 있는 폴더 |
+| `Task` | `classification`이면 `[Data]` / `[Prediction]` 형식으로 읽음. `object detection` / `segmentation`은 [이전 형식](#이전-형식) 사용 |
+| `DB` | `[Data]`나 `[Prediction]`에서 `Type = "DB"`를 쓰면 `True`. `False`면 DB를 쓰지 않음 |
+
+**`[DB]`** (`[Project] DB = True`일 때)
+
+| key | 넣을 값 |
+| --- | --- |
+| `DB` | DB 종류. `supabase` |
+| `DB_ip` | DB 주소. Supabase URL(`http://127.0.0.1:54323/` → 그 Postgres의 54322 포트), 또는 `postgresql://user:password@host:5432/dbname` |
+
+기본값과 다르면 `Port`, `User`, `Password`, `Database`(기본: 54322 / postgres / postgres / postgres)와
+`Limit`(읽을 최대 행 수, 기본 200,000)를 추가할 수 있습니다.
+
+**`[Git]`** git에서 알 수 없을 때만 쓰는 대체값입니다.
+
+| key | 넣을 값 |
+| --- | --- |
+| `Remote` | origin 원격이 없을 때 표시할 원격 주소. 예: `github.com:user/repo.git` |
+| `Branch` | HEAD가 detached이거나 Root가 git 저장소가 아닐 때 표시할 브랜치. 예: `main` |
+
+**`[Path]`**
+
+| key | 넣을 값 |
+| --- | --- |
+| `Models` | 모델 체크포인트(.pt, .onnx, .safetensors 등) 폴더 → [Model](model.md) 페이지 |
+| `Runs` | 학습 실행마다 하위 폴더가 있고 그 안에 json / yaml / toml 설정이 있는 폴더 → [Run](run.md) 페이지 |
+| `Results` | 결과 파일(csv, 로그, 이미지, TensorBoard 이벤트 등) 폴더 → [Result](result.md) 페이지. `[Prediction] Type = "CSV"`도 여기서 찾음 |
+
+**`[Data]` / `[Prediction]`** Type에 따라 쓰는 key가 다릅니다. Type별 상세 설명과 필요한 열은
+[Data 페이지 문서의 데이터 설정](data.md#데이터-설정)과 [예측 설정](data.md#예측-설정-prediction)을 보세요.
+
+| key | 넣을 값 |
+| --- | --- |
+| `[Data] Type` | `DB` / `CSV` / `Folder` |
+| `[Data] File_path` | CSV: 파일 목록 csv 경로 · Folder: `split/label/파일` 구조의 데이터셋 폴더 |
+| `[Data] Table` | DB: 파일 하나당 한 행인 테이블 |
+| `[Data] Label` | DB / CSV: 정답 열 이름. 비우면 `label` |
+| `[Prediction] Type` | `CSV` / `DB` / `Folder` |
+| `[Prediction] Path` | CSV: `[Path] Results` 아래의 결과 파일 이름 / glob · Folder: 예측 파일 폴더 |
+| `[Prediction] Table` | DB: 예측이 들어 있는 테이블 |
+| `[Prediction] Format` | Folder: `txt`(`<클래스> [점수]`) / `json` |
+| `[Prediction] Predict` | 예측 클래스 열(json이면 key) |
+| `[Prediction] Predict_score` | 점수 열(json이면 key) |
+
+### 섹션을 쓰는 곳
 
 | 섹션 | 사용하는 곳 |
 | --- | --- |
-| `[project]`, `[git]` | 상단 바, Home, git log 팝업 |
-| `[paths] data`, `[db]`, `[data]` | [Data](data.md), Home의 Data 카드 |
-| `[paths] models`, `[models]` | [Model](model.md), Home의 Model 카드 |
-| `[paths] runs` | [Run](run.md), Home의 Latest run 카드 |
-| `[paths] results` | [Result](result.md), Home의 Result 카드 |
-| `[labels]` | [Data](data.md) 페이지의 레이블과 예측 칩 |
+| `[Project]`, `[Git]` | 상단 바, Home, git log 팝업 |
+| `[Data]`, `[DB]` | [Data](data.md), Home의 Data 카드 |
+| `[Prediction]` | [Data](data.md) 페이지의 예측 표시 |
+| `[Path] Models` | [Model](model.md), Home의 Model 카드 |
+| `[Path] Runs` | [Run](run.md), Home의 Latest run 카드 |
+| `[Path] Results` | [Result](result.md), Home의 Result 카드 |
 
-무언가를 보려면 `[paths]`(또는 `[db]`)만 있으면 됩니다. 찾지 못한 부분은 비어 있고, 어느 부분이
-그런지는 Detected 카드에서 확인할 수 있습니다.
+찾지 못한 부분은 비어 있고, 어느 부분이 그런지는 Detected 카드와 상태 바에서 확인할 수 있습니다.
+
+### 이전 형식
+
+`Task`가 비어 있거나 `classification`이 아니면 이전 형식으로 읽습니다. 데이터 위치는 `[Path] Data`로,
+예측은 `[Labels]`로 정합니다. 자세한 읽기 순서는 [Data 문서의 이전 형식](data.md#이전-형식-task가-classification이-아닐-때)을
+보세요.
+
+```toml
+[Path]
+Data = "/path/to/data"             # 데이터 폴더, 파일 목록(csv / tsv / jsonl / parquet), 또는 "DB" 같은 섹션 이름
+
+[DB]                               # 접속 가능하면 Path.Data보다 먼저 사용
+Supabase = "http://127.0.0.1:54323/"
+Table = "my_table"                 # 또는 "schema.table"
+# Dsn = "postgresql://user:pw@host:5432/db"
+# Columns = { Path = "file_path", Split = "type" }   # 정답은 항상 "label" 열
+
+[Models]                           # 선택 사항
+# Extensions = [".pt", ".onnx"]
+
+[Labels]                           # 선택 사항 ([Lables]로 써도 읽음)
+Result_file = "inference.csv"      # Path.Results 아래의 이름 / glob. 일치하는 파일마다 하나의 소스
+Infer = "classification"           # 나머지 key는 모두 Data 페이지에 표시할 열
+Score = "AD_result"
+# Path = "data_path"               # 행을 데이터 파일과 매칭할 열 (생략하면 추정)
+```
