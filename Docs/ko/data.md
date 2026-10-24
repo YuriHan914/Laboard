@@ -15,20 +15,60 @@ Data 페이지는 데이터셋의 모든 파일을 보는 뷰어입니다. 파�
 
 ## 데이터 설정
 
-Data 페이지에 보일 파일 목록은 프로젝트 파일(toml)의 `[Data]` 섹션이, 각 파일의 모델 예측은
-`[Prediction]` 섹션이 정합니다. 이 형식은 `[Project] Task = "classification"`일 때 쓰입니다.
-다른 Task는 아래 [이전 형식](#이전-형식-task가-classification이-아닐-때)을 따릅니다.
+프로젝트 파일(toml)의 세 섹션이 Data 페이지에 보일 내용을 정합니다.
 
-| `[Data] Type` | 파일 목록을 가져오는 곳 | 정답(레이블) | split |
-| --- | --- | --- | --- |
-| `DB` | 데이터베이스 테이블 (한 행 = 파일 하나) | `Label` 열 | split 열 (`type`, `status` 등) |
-| `CSV` | 파일 목록 csv (한 행 = 파일 하나) | `Label` 열 | split 열 (`type`, `status` 등) |
-| `Folder` | 데이터셋 폴더를 스캔 | split 폴더 바로 아래 폴더 이름 | 경로의 split 폴더 이름 |
+| 섹션 | 정하는 것 | task와의 관계 |
+| --- | --- | --- |
+| `[Data]` | 원본 데이터 파일 목록 | 모든 task가 하나를 같이 씀 |
+| `[Label]` | 각 파일의 정답 | task마다 `<Task>_Label` 하나씩 ([라벨 설정](#라벨-설정-label)) |
+| `[Prediction]` | 각 파일의 모델 예측 | task마다 따로 읽음 ([예측 설정](#예측-설정-prediction)) |
+
+이 형식은 `[Project] Task`에 아래 task가 하나 이상 있을 때 쓰입니다([Task: 단일 / 다중](#task-단일--다중)).
+Task가 비어 있으면 [이전 형식](#이전-형식-task가-비어-있을-때)을 따릅니다.
+
+| `[Data] Type` | 파일 목록을 가져오는 곳 | split |
+| --- | --- | --- |
+| `DB` | 데이터베이스 테이블 (한 행 = 파일 하나) | split 열 (`type`, `status` 등) |
+| `CSV` | 파일 목록 csv (한 행 = 파일 하나) | split 열 (`type`, `status` 등) |
+| `Folder` | 데이터셋 폴더를 스캔 | 경로의 split 폴더 이름 |
 
 - **Type 값:** `DB`, `CSV`, `Folder`는 대소문자를 구분하지 않습니다(`csv`도 됨). 비어 있으면 상태 바에
   `[Data] Type is not set`이 뜹니다.
 - **읽는 양:** 출처와 상관없이 최대 200,000개 행(파일)까지 읽습니다.
-- **정답 출처:** 정답은 항상 데이터에서만 가져옵니다. 예측 결과 파일에 레이블 열이 있어도 정답으로 쓰지 않습니다.
+- **정답 출처:** 정답은 항상 `[Label]`에서만 가져옵니다. 예측 결과 파일에 레이블 열이 있어도 정답으로 쓰지 않습니다.
+
+### Task: 단일 / 다중
+
+`[Project] Task`에 task 하나를 쓰거나, 여러 개를 쉼표로 나열합니다.
+
+```toml
+Task = "classification"                                   # 단일 task
+Task = "classification, segmentation, object detection"   # 다중 task
+```
+
+- **쓸 수 있는 task:** `classification`, `object detection`, `segmentation`, `anomaly detection`, `pose-estimation`.
+  대소문자, 공백, `_`, `-`는 구분하지 않습니다(`Object_detection`도 됨). 모르는 이름은 알림을 띄우고 건너뜁니다.
+- **원본 데이터는 하나:** `[Data]`는 모든 task가 같이 씁니다. task마다 다른 것은 정답(`[Label]`)과 예측(`[Prediction]`)입니다.
+- **폴더 구조:** `[Path]`의 Models / Hyperparameter / Results 아래에 task 이름 폴더를 두면 task별로 나눠 봅니다.
+
+  ```text
+  test_projects/
+  ├── Data/semiconductor_AD_df.csv     # 원본 데이터 (하나)
+  ├── Models/classification/<모델>/
+  ├── Runs/classification/<모델>/      # [Path] Hyperparameter
+  └── Results/
+      ├── classification/<모델>/inference.csv
+      ├── segmentation/
+      ├── object detection/
+      ├── anomaly detection/
+      └── pose-estimation/
+  ```
+
+  - Model 페이지와 Home은 `Models/<task>/<모델>`을 모델 하나로 묶습니다.
+  - CSV 예측은 `Results/<task>/` 아래에서 찾습니다.
+- **Data 페이지:** task가 여럿이면 뷰어 머리글에 **Task** 드롭다운이 생기고, 고른 task의 정답과 예측을 보여 줍니다.
+  File info에는 모든 task의 정답이 `Label · <task>`로 나옵니다.
+- **Home:** 작업 이름에 task가 모두 나옵니다(예: *Classification · Segmentation · Object detection*).
 
 ### 설정 바꾸는 법
 
@@ -44,7 +84,8 @@ Data 페이지에 보일 파일 목록은 프로젝트 파일(toml)의 `[Data]` 
 - **파일은 그대로:** 디스크의 toml 파일은 바뀌지 않습니다. 바꾼 내용을 남기려면 **Save as…**로 새 toml을
   저장하세요. **Load**를 다시 누르면 파일 내용으로 돌아갑니다.
 - **Type에 따라 보이는 행:**
-  - `Table` 행은 `Type = "DB"`일 때만 보입니다.
+  - `Table`은 `Type = "DB"`일 때만, `File_path`는 DB가 아닐 때만, `[Data] Raw`는 Folder가 아닐 때만 보입니다.
+  - `[Label]`에는 `[Project] Task`의 task마다 `<Task>_Label` 행이 생깁니다.
   - `[DB]` 섹션은 `[Project] DB = True`일 때만 보입니다.
 - **설명 보기:** key나 값에 마우스를 올리면 무엇을 넣어야 하는지 설명이 나옵니다.
 
@@ -61,8 +102,7 @@ Data 페이지에 보일 파일 목록은 프로젝트 파일(toml)의 `[Data]` 
 | `Type` | 필수 | 필수 | 필수 | `DB` / `CSV` / `Folder` |
 | `Table` | 필수 | – | – | 테이블 이름. `table` 또는 `schema.table` |
 | `File_path` | – | 필수 | 필수 | CSV: 목록 파일 경로 · Folder: 데이터셋 폴더 |
-| `Label` | 선택 | 선택 | – | 정답 열 이름. 비우면 `"label"` |
-| `Path` | 선택 | 선택 | – | 파일 경로 열 이름. 비우면 자동으로 찾음 (아래 표) |
+| `Raw` | 선택 | 선택 | – | 원본 파일 경로가 든 열 이름(예: `file_path`). 비우면 자동으로 찾음 (아래 표) |
 
 `File_path` 같은 경로는 절대 경로, 또는 toml 파일이 있는 폴더 기준의 상대 경로로 씁니다.
 
@@ -81,7 +121,7 @@ DB_ip = "http://127.0.0.1:54323/"  # Supabase 주소 → 그 Postgres(54322 포�
 [Data]
 Type = "DB"
 Table = "semiconductor"
-Label = "label"
+Raw = "file_path"
 ```
 
 - **접속 (`[DB] DB_ip`):**
@@ -94,8 +134,7 @@ Label = "label"
 
   | 열 | 필수 | 내용 |
   | --- | --- | --- |
-  | 파일 경로 | 필수 | 데이터 파일의 경로. 이름은 아래 [열 찾기](#열-찾기) 표 참고 (예: `file_path`) |
-  | 정답 | 권장 | `[Data] Label`에 적은 열(기본 `label`). 없으면 레이블 없이 표시 |
+  | 파일 경로 | 필수 | 원본 파일의 경로. `[Data] Raw`에 적은 열, 없으면 아래 [열 찾기](#열-찾기) 표 참고 |
   | split | 선택 | `type`, `status`, `split` 등. 없으면 모두 Unused |
   | 생성일 | 선택 | `create_date` 등. File info의 Created, 월별 추가 그래프, 과거 커밋 보기에 사용 |
   | 학습 여부 | 선택 | `trained` / `used` (true/false). Home에 학습 사용/미사용 개수 표시 |
@@ -118,7 +157,7 @@ csv 파일의 한 행이 데이터 파일 하나입니다. tsv, jsonl, parquet�
 [Data]
 Type = "CSV"
 File_path = "/mnt/data/github/Anomaly-Detection/test_projects/Data/semiconductor_AD_df.csv"
-Label = "label"
+Raw = "file_path"
 ```
 
 - **csv에 필요한 열:** Type = DB의 테이블과 같습니다. 파일 경로 열은 필수이고, 정답(`label`)·split 열이 있으면
@@ -132,7 +171,7 @@ Label = "label"
 
 - **상대 경로:** csv 안의 경로가 상대 경로이면 csv 파일이 있는 폴더 기준으로 읽습니다.
 - **잘못된 경로:** `File_path`가 파일이 아니면 `[Data] File_path … is not a file` 알림이 뜹니다.
-- **경로 열을 못 찾을 때:** `[Data] Path`에 열 이름을 적습니다.
+- **경로 열을 못 찾을 때:** `[Data] Raw`에 열 이름을 적습니다.
 
 ### Type = Folder
 
@@ -164,7 +203,7 @@ File_path = "/mnt/data/Dataset/semiconductor_waifer_defect_classification"
 - **정답이 없는 경우:**
   - `Normal/x.jpg`처럼 split 폴더가 없으면 split은 Unused, 정답은 없습니다.
   - `Normal/train/x.jpg`처럼 순서가 반대이거나 `train/x.jpg`처럼 정답 폴더가 없어도 정답은 없습니다.
-- **`[Data] Label`:** 쓰지 않습니다.
+- **`[Data] Raw`:** 쓰지 않습니다. classification 정답은 `[Label] Type = "Folder"`일 때 이 폴더 구조에서 가져옵니다.
 - **제외하는 파일:**
   - 코드·노트북·마크다운: `.py`, `.pyc`, `.ipynb`, `.sh`, `.md`
   - 테이블 파일: `.csv`, `.tsv`, `.jsonl`, `.parquet`
@@ -178,8 +217,7 @@ Type = DB / CSV에서 각 의미의 열을 이름으로 찾습니다(대소문�
 
 | 의미 | 인식하는 이름 |
 | --- | --- |
-| 파일 경로 | `[Data] Path`에 적은 열, 없으면 `file_path`, `data_path`, `path`, `filepath`, `file`, `image`, `image_path`, `img`, `filename` |
-| 정답 | `[Data] Label`에 적은 열 (기본 `label`) |
+| 파일 경로 | `[Data] Raw`에 적은 열, 없으면 `file_path`, `data_path`, `path`, `filepath`, `file`, `image`, `image_path`, `img`, `filename` |
 | split | `type`, `status`, `split`, `subset`, `set` |
 | 작업 종류 | `object`, `task` |
 | 생성일 | `create_date`, `created_at`, `created`, `date`, `timestamp` |
@@ -205,32 +243,76 @@ Type = DB / CSV에서 각 의미의 열을 이름으로 찾습니다(대소문�
 사이드바의 폴더는 파일의 디렉터리에서 split 부분을 뺀 이름으로 묶입니다. 그래서 `train/cat/`과 `valid/cat/`은
 둘 다 `cat` 폴더로 보입니다.
 
-## 예측 설정 (`[Prediction]`)
+## 라벨 설정 (`[Label]`)
 
-예측도 `Type`으로 출처를 정합니다. 데이터와 다른 Type을 써도 됩니다(예: 데이터는 DB, 예측은 CSV).
+정답도 `Type`(`CSV` / `DB` / `Folder`)으로 출처를 정하고, task마다 `<Task>_Label` key를 하나씩 둡니다.
 
 | key | `CSV` | `DB` | `Folder` | 설명 |
 | --- | --- | --- | --- | --- |
 | `Type` | 필수 | 필수 | 필수 | `CSV` / `DB` / `Folder` |
-| `Path` | 필수 | – | 필수 | CSV: 결과 파일 이름 / glob · Folder: 예측 파일 폴더 |
+| `File_path` | 선택 | – | 선택 | CSV: 라벨 csv(비우면 `[Data]` csv) · Folder: 라벨 폴더들이 있는 폴더(비우면 데이터 폴더) |
+| `Table` | – | 선택 | – | 라벨 테이블(비우면 `[Data]` 테이블) |
+| `<Task>_Label` | 열 이름 | 열 이름 | 아래 참고 | `Classification_Label`, `Segmentation_Label`, `Object_detection_Label`, `Anomaly_detection_Label`, `Pose_estimation_Label` |
+
+- **CSV / DB:** `<Task>_Label`은 그 task의 정답이 든 열입니다. 라벨 csv·테이블의 원본 경로 열(`Raw`, 비우면
+  `[Data] Raw`)로 데이터 파일과 맞춥니다. 라벨이 `[Data]`와 같은 csv·테이블에 있으면 그대로 씁니다.
+- **Folder:**
+  - classification은 `[Data] Type = "Folder"`의 `split/<class>/파일` 구조에서 정답을 가져옵니다. 값은 아무것이나 됩니다.
+  - 다른 task의 `<Task>_Label`은 라벨 파일이 든 폴더입니다(`File_path` 기준 상대 경로 또는 절대 경로). 데이터
+    파일마다 같은 이름(확장자 제외)의 라벨 파일을 찾고, 그 파일 이름을 정답으로 표시합니다.
+- **정답이 없는 task:** `<Task>_Label`이 없으면 `[Label] no <Task>_Label` 알림이 뜨고, 그 task의 정답은 비어 있습니다.
+
+```toml
+[Label]                                 # 단일 task, CSV
+Type = "CSV"
+File_path = "/mnt/data/github/Anomaly-Detection/test_projects/Data/semiconductor_AD_df.csv"
+Classification_Label = "label"
+
+[Label]                                 # 다중 task, DB
+Type = "DB"
+Table = "semiconductor"
+Classification_Label = "label"
+Segmentation_Label = "seg_label"
+Object_detection_Label = "obj_label"
+
+[Label]                                 # 다중 task, Folder
+Type = "Folder"
+File_path = "/mnt/data/Dataset/semiconductor_waifer_defect_classification"
+Classification_Label = "label"          # 클래스 폴더
+Segmentation_Label = "seg_label"        # File_path/seg_label/ 아래 라벨 파일
+```
+
+## 예측 설정 (`[Prediction]`)
+
+예측도 `Type`으로 출처를 정합니다. 데이터와 다른 Type을 써도 됩니다(예: 데이터는 DB, 예측은 CSV).
+
+- **task별 설정:** 모든 key는 기본적으로 모든 task에 적용됩니다. 한 task만 다르게 하려면 `<Task>_<Key>`로 씁니다.
+  예: `Segmentation_File_path`, `Segmentation_Predict`, `Object_detection_Type`.
+- **소스 이름:** task가 여럿이면 Results 드롭다운의 소스 이름 앞에 task가 붙고, 고른 task의 소스만 보입니다.
+
+| key | `CSV` | `DB` | `Folder` | 설명 |
+| --- | --- | --- | --- | --- |
+| `Type` | 필수 | 필수 | 필수 | `CSV` / `DB` / `Folder` |
+| `File_path` | 필수 | – | 필수 | CSV: 결과 파일 이름 / glob · Folder: 예측 파일 폴더 |
 | `Table` | – | 필수 | – | 예측이 들어 있는 테이블 |
 | `Format` | – | – | 선택 | `txt`(기본) / `json` |
 | `Predict` | 필수 | 필수 | json에서 선택 | 예측 클래스 열(json이면 key) |
 | `Predict_score` | 선택 | 선택 | json에서 선택 | 점수 열(json이면 key) |
 
-Setting에서 `Table`은 `Type = "DB"`일 때만, `Format`은 `Type = "Folder"`일 때만 보입니다.
+Setting에서 `Table`은 `Type = "DB"`일 때만, `File_path`는 DB가 아닐 때만, `Format`은 `Type = "Folder"`일 때만 보입니다.
 
 ### 예측 Type = CSV
 
 ```toml
 [Prediction]
 Type = "CSV"
-Path = "inference.csv"
+File_path = "inference.csv"
 Predict = "classification"
 Predict_score = "AD_score"
 ```
 
-- **결과 파일 찾기:** `Path`는 `[Path] Results` 아래에서 찾는 파일 이름이나 glob입니다. 절대 경로도 됩니다.
+- **결과 파일 찾기:** `File_path`는 `[Path] Results/<task>/` 아래에서 찾는 파일 이름이나 glob입니다. Results에
+  task 폴더가 없으면 `[Path] Results` 전체에서 찾습니다. 절대 경로도 됩니다.
   - 일치하는 파일마다 하나의 소스가 됩니다. 예를 들어 모델 폴더마다 `inference.csv`가 하나씩 있으면,
     뷰어 머리글에 **Results** 드롭다운이 생겨 모델을 고를 수 있습니다.
 - **데이터와 매칭:** 결과 파일의 경로 열(위 [열 찾기](#열-찾기)와 같은 이름)로 데이터 파일과 맞춥니다.
@@ -256,14 +338,14 @@ Predict_score = "AD_score"
 ```toml
 [Prediction]
 Type = "Folder"
-Path = "/mnt/data/predictions"
+File_path = "/mnt/data/predictions"
 Format = "txt"
 ```
 
 - **예측 파일 위치:** 데이터 파일마다 예측 파일 하나를 둡니다. 다음 순서로 찾습니다.
-  1. `Path` 아래, 데이터 폴더 안에서와 **같은 위치·같은 이름**의 파일
+  1. `File_path` 아래, 데이터 폴더 안에서와 **같은 위치·같은 이름**의 파일
      (`test/Normal/x.jpg` → `test/Normal/x.txt`)
-  2. 없으면 `Path` 아래 어디서든 **같은 파일 이름**(확장자 제외)
+  2. 없으면 `File_path` 아래 어디서든 **같은 파일 이름**(확장자 제외)
 - **`Format = "txt"`:** 첫 줄에 `<클래스> [점수]`를 씁니다. 공백이나 쉼표로 구분합니다.
 
   ```text
@@ -291,15 +373,19 @@ Format = "txt"
 | `[Data] Type = DB, but [Project] DB = False` | `[Project] DB`를 `True`로 바꿉니다 |
 | `DB … unavailable (…)` | DB에 접속할 수 없음. `[DB] DB_ip`, DB 서버 실행 여부, 테이블 이름을 확인합니다 |
 | `[Data] File_path … is not a file` | CSV 경로가 틀림. 파일 경로를 다시 고릅니다 |
-| `… no file-path column found` | 경로 열을 못 찾음. `[Data] Path`에 열 이름을 적습니다 |
-| `… no 'label' column; files have no ground truth` | 정답 열이 없음. `[Data] Label`에 열 이름을 적습니다 |
+| `… no file-path column found` | 경로 열을 못 찾음. `[Data] Raw`에 열 이름을 적습니다 |
+| `[Label] <Task>_Label: no column …` | 라벨 csv·테이블에 그 열이 없음. 열 이름을 확인합니다 |
+| `[Label] <Task>_Label: no folder …` / `no label files in …` | Folder 라벨 폴더가 없거나 비어 있음 |
+| `[Label] no <Task>_Label: …` | 그 task의 `<Task>_Label`을 적지 않음 |
+| `[Project] Task: unknown task …` | 쓸 수 없는 task 이름. 위 [Task](#task-단일--다중)의 이름을 씁니다 |
 | `[Prediction] … no column …` | `Predict` / `Predict_score`에 적은 열이 결과에 없음 |
-| `[Prediction] no .txt files under …` | 예측 폴더에 예측 파일이 없음. `Path`와 `Format`을 확인합니다 |
+| `[Prediction] no .txt files under …` | 예측 폴더에 예측 파일이 없음. `File_path`와 `Format`을 확인합니다 |
+| `[Prediction] <task> File_path … not found under Path.Results/<task>` | 그 task의 결과 폴더에 결과 파일이 없음 |
 | `No data rows found` | 위 문제로 데이터를 하나도 읽지 못함 |
 
-## 이전 형식 (Task가 classification이 아닐 때)
+## 이전 형식 (Task가 비어 있을 때)
 
-`[Project] Task`가 비어 있거나 `object detection` / `segmentation`이면 이전 형식으로 읽습니다.
+`[Project] Task`가 비어 있으면 이전 형식으로 읽습니다.
 아래 출처 중 처음으로 동작하는 것을 사용합니다.
 
 1. **데이터베이스 테이블:** `[DB] Table`. 접속할 수 없으면 상태 바에 알리고 다음 출처로 넘어갑니다.
@@ -333,7 +419,8 @@ Format = "txt"
   - **Raw:** 파일과 레이블.
   - **Predict:** 파일과 예측 칩(아래 참고).
   - **Both:** Raw와 Predict를 나란히.
-- **Results** 드롭다운. 예측 결과 파일이 여러 개일 때만 나타납니다(`[Prediction] Type = "CSV"`의 `Path`와
+- **Task** 드롭다운. task가 여럿일 때만 나타납니다. 고른 task의 정답과 예측을 보여 줍니다.
+- **Results** 드롭다운. 예측 결과 파일이 여러 개일 때만 나타납니다(`[Prediction] Type = "CSV"`의 `File_path`와
   일치하는 파일이 여럿, 예: 모델마다 `inference.csv`가 하나씩). 예측을 어느 결과 파일에서 가져올지 고릅니다.
 
 ### 이미지
@@ -398,7 +485,7 @@ Format = "txt"
 | Split | 파일의 split |
 | Dimensions | 이미지 너비 × 높이 |
 | Format | 확장자 |
-| Label | 파일의 레이블 |
+| Label | 파일의 정답. task가 여럿이면 `Label · <task>`로 task마다 한 행 |
 | Size | 파일 크기. 디스크에 파일이 없으면 `missing` |
 | Modified | 파일 수정 시각 |
 

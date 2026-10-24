@@ -29,7 +29,7 @@ What can happen:
 | The file is missing or broken | The error appears in the status bar, and the previous project stays loaded |
 | Loading succeeds | Every page reloads, and the status bar shows `Loaded <path>` with any notes |
 
-Notes include things like *Nothing found in Path.Runs*, *[Data] Type is not set* or *DB … unavailable (…)*.
+Notes include things like *Nothing found in Path.Hyperparameter*, *[Data] Type is not set* or *DB … unavailable (…)*.
 See [Common notes](data.md#common-notes) in the Data docs for what to do about each.
 
 ## Project file
@@ -68,7 +68,7 @@ What Laboard found for each part of the project, with a status badge:
 | Database | *Connected* / *Unreachable* (with the error) |
 | Data | *Found* (source · files · folders · size) / *Not found* |
 | Models | *Found* / *Not found* |
-| Runs | *Found* / *Not found* |
+| Hyperparameter | *Found* (folder · number of sets) / *Not found* |
 | Results | *Found* / *Not found* |
 | TensorBoard | *Found*, when event files are under the results |
 | Weights & Biases | *Offline*, when `offline-run-*` folders are under the results |
@@ -94,14 +94,15 @@ to start. Setting's **Fields** shows and edits the same keys in the same order.
 - **Empty values:** leave keys you don't use as `""`. An empty key counts as not set.
 - **True / False:** Laboard writes `True` / `False`; standard toml `true` / `false` is read too.
 
-### Full example (classification project)
+### Full example
 
 ```toml
 [Project]
 Name = "Anomaly-Detection"
 Root = "/mnt/data/github/Anomaly-Detection/test_projects"
-Task = "classification"            # classification | object detection | segmentation
-DB = False                         # True when [Data] / [Prediction] uses Type = "DB"
+Task = "classification"            # one task, or several comma-separated: classification, object detection,
+                                   # segmentation, anomaly detection, pose-estimation
+DB = False                         # True when [Data] / [Label] / [Prediction] uses Type = "DB"
 
 [DB]                               # used only with DB = True (and only shown in Setting then)
 DB = "supabase"
@@ -113,18 +114,23 @@ Branch = "main"
 
 [Path]
 Models = "/mnt/data/github/Anomaly-Detection/test_projects/Models"
-Runs = "/mnt/data/github/Anomaly-Detection/test_projects/Runs"
+Hyperparameter = "/mnt/data/github/Anomaly-Detection/test_projects/Runs"
 Results = "/mnt/data/github/Anomaly-Detection/test_projects/Results"
 
-[Data]
+[Data]                             # the raw data, shared by every task
 Type = "CSV"                       # CSV | DB | Folder
 File_path = "/mnt/data/github/Anomaly-Detection/test_projects/Data/semiconductor_AD_df.csv"
 Table = ""                         # Type = "DB" only
-Label = "label"
+Raw = "file_path"                  # raw-file path column (CSV / DB)
 
-[Prediction]
+[Label]                            # the ground truth: one <Task>_Label per task
 Type = "CSV"                       # CSV | DB | Folder
-Path = "inference.csv"
+File_path = "/mnt/data/github/Anomaly-Detection/test_projects/Data/semiconductor_AD_df.csv"
+Classification_Label = "label"
+
+[Prediction]                       # <Task>_<Key> sets a key for one task
+Type = "CSV"                       # CSV | DB | Folder
+File_path = "inference.csv"        # looked for under Path.Results/<task>/
 Table = ""                         # Type = "DB" only
 Format = ""                        # Type = "Folder" only: txt | json
 Predict = "classification"
@@ -139,8 +145,8 @@ Predict_score = "AD_score"
 | --- | --- |
 | `Name` | Project name shown in the top bar and on Home. Empty: the Root folder's name |
 | `Root` | Folder of the project's git repository; git history, branch and remote come from it. Empty: the first of the data / `[Path]` paths, or the toml's folder |
-| `Task` | `classification` reads `[Data]` / `[Prediction]`. `object detection` / `segmentation` use the [older format](#older-format) |
-| `DB` | `True` when `[Data]` or `[Prediction]` uses `Type = "DB"`. `False`: no database |
+| `Task` | One task, or several comma-separated: `classification`, `object detection`, `segmentation`, `anomaly detection`, `pose-estimation` (case, spaces, `_` and `-` don't matter). Empty: the [older format](#older-format) |
+| `DB` | `True` when `[Data]`, `[Label]` or `[Prediction]` uses `Type = "DB"`. `False`: no database |
 
 **`[DB]`** (with `[Project] DB = True`)
 
@@ -164,21 +170,27 @@ postgres / postgres) and `Limit` (most rows read, default 200,000).
 | Key | What to put in it |
 | --- | --- |
 | `Models` | Folder of model checkpoints (.pt, .onnx, .safetensors, …) → [Model](model.md) page |
-| `Runs` | Folder with one sub-folder per training run holding json / yaml / toml configs → [Run](run.md) page |
-| `Results` | Folder of result files (csv, logs, images, TensorBoard events, …) → [Result](result.md) page. `[Prediction] Type = "CSV"` looks here too |
+| `Hyperparameter` | Folder with one sub-folder per training run holding json / yaml / toml configs → [Hyperparameter](run.md) page. |
+| `Results` | Folder of result files (csv, logs, images, TensorBoard events, …) → [Result](result.md) page. `[Prediction] Type = "CSV"` looks here too (`Results/<task>/`) |
 
-**`[Data]` / `[Prediction]`** the keys used depend on `Type`. For each Type's details and the columns it needs,
-see [Data setup](data.md#data-setup) and [Prediction setup](data.md#prediction-setup-prediction) in the
-Data page docs.
+Each of the three can hold one folder per task (e.g. `Models/classification/<model>/`).
+
+**`[Data]` / `[Label]` / `[Prediction]`** the keys used depend on `Type`. For each Type's details and the columns
+it needs, see [Data setup](data.md#data-setup), [Label setup](data.md#label-setup-label) and
+[Prediction setup](data.md#prediction-setup-prediction) in the Data page docs.
 
 | Key | What to put in it |
 | --- | --- |
 | `[Data] Type` | `DB` / `CSV` / `Folder` |
 | `[Data] File_path` | CSV: the csv listing the files · Folder: a dataset folder laid out as `split/label/file` |
 | `[Data] Table` | DB: the table with one row per file |
-| `[Data] Label` | DB / CSV: the ground-truth column. Empty: `label` |
+| `[Data] Raw` | DB / CSV: the column with each raw file's path (e.g. `file_path`). Empty: found automatically |
+| `[Label] Type` | `CSV` / `DB` / `Folder` |
+| `[Label] File_path` | CSV: the labels csv (empty: `[Data]`'s) · Folder: the folder the label folders are in |
+| `[Label] Table` | DB: the labels table (empty: `[Data]`'s) |
+| `[Label] <Task>_Label` | A task's ground truth. CSV / DB: its column · Folder: the class folders for classification, a label-file folder for other tasks |
 | `[Prediction] Type` | `CSV` / `DB` / `Folder` |
-| `[Prediction] Path` | CSV: result file name / glob under `[Path] Results` · Folder: the folder of prediction files |
+| `[Prediction] File_path` | CSV: result file name / glob under `[Path] Results/<task>` · Folder: the folder of prediction files |
 | `[Prediction] Table` | DB: the table holding the predictions |
 | `[Prediction] Format` | Folder: `txt` (`<class> [score]`) / `json` |
 | `[Prediction] Predict` | Predicted-class column (json: key) |
@@ -190,17 +202,18 @@ Data page docs.
 | --- | --- |
 | `[Project]`, `[Git]` | Top bar, Home, git log popup |
 | `[Data]`, `[DB]` | [Data](data.md), Home's Data card |
+| `[Label]` | The [Data](data.md) page's ground truth and class list |
 | `[Prediction]` | The [Data](data.md) page's predictions |
 | `[Path] Models` | [Model](model.md), Home's Model card |
-| `[Path] Runs` | [Run](run.md), Home's Latest run card |
+| `[Path] Hyperparameter` | [Hyperparameter](run.md), Home's Latest hyperparameter card |
 | `[Path] Results` | [Result](result.md), Home's Result card |
 
 Any part that Laboard can't find stays empty; the Detected card and the status bar show which.
 
 ### Older format
 
-When `Task` is empty or not `classification`, the older format is read: `[Path] Data` says where the data is
-and `[Labels]` where predictions are. See the [older format](data.md#older-format-task-is-not-classification)
+When `Task` is empty, the older format is read: `[Path] Data` says where the data is
+and `[Labels]` where predictions are. See the [older format](data.md#older-format-task-is-empty)
 in the Data docs for the order sources are tried in.
 
 ```toml

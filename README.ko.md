@@ -105,7 +105,7 @@ python -m laboard --project project.toml
 | [Home](Docs/ko/home.md) | 데이터 / 모델 / 최근 run / 결과 요약과 git 기록 |
 | [Data](Docs/ko/data.md) | 모든 데이터 파일과 split, 레이블을 보고 모델 예측과 비교 |
 | [Model](Docs/ko/model.md) | 모델 파일의 Netron 그래프, 속성, 레이어별 파라미터 |
-| [Run](Docs/ko/run.md) | 학습 run의 진행 상황, 모든 하이퍼파라미터, GPU |
+| [Hyperparameter](Docs/ko/run.md) | 학습 run의 진행 상황, 모든 하이퍼파라미터, GPU |
 | [Result](Docs/ko/result.md) | csv / jsonl / TensorBoard 차트, 곡선 비교, 표, 로그, 이미지 |
 | [Setting](Docs/ko/setting.md) | 프로젝트 파일 로드, 감지된 항목, 테마 전환, 프로젝트 파일 작성법 |
 
@@ -142,10 +142,10 @@ python -m laboard --project project.toml
 ### 왼쪽 사이드바
 
 페이지마다 왼쪽에 목록이 있습니다: 루트 폴더(Home), 데이터 폴더와 파일(Data), 모델 파일(Model),
-run(Run), 결과 파일(Result), 최근 프로젝트(Setting). 모든 목록에 공통인 기능:
+하이퍼파라미터 세트(Hyperparameter), 결과 파일(Result), 최근 프로젝트(Setting). 모든 목록에 공통인 기능:
 
 - **필터 상자:** 입력한 글자가 이름에 들어 있는 행만 남깁니다 (대소문자 무시).
-- **폴더 트리** (Model, Run, Result): 폴더는 접힌 상태로 시작하고 클릭하면 펼쳐집니다. 하위 폴더 하나만
+- **폴더 트리** (Model, Hyperparameter, Result): 폴더는 접힌 상태로 시작하고 클릭하면 펼쳐집니다. 하위 폴더 하나만
   있는 폴더는 한 행으로 합쳐집니다 (`a/b/c/`). 필터를 입력하는 동안에는 일치 항목이 있는 폴더가 모두 펼쳐집니다.
 - **긴 목록:** 선택 주변 200개 행만 한 번에 만듭니다. 나머지는 필터로 찾으세요.
 - **같은 이름:** 다른 폴더에 같은 이름의 파일이 있으면 상대 경로로 표시합니다.

@@ -1,13 +1,14 @@
-# Laboard project file for a classification project.
-# It combines the DB / CSV / Folder formats: fill in the keys your data uses and leave the others
-# empty (""). Paths are absolute, or relative to this file. Settings shows every key below with a
-# description of what to put in it. Names are read in any case.
+# Laboard project file.
+# One raw data source ([Data]) is shared by every task; each task has its own labels ([Label]) and predictions
+# ([Prediction]). Fill in the keys your data uses and leave the others empty (""). Paths are absolute, or relative
+# to this file. Settings shows every key below with a description of what to put in it. Names are read in any case.
 
 [Project]
 Name = ""                  # project name; empty: the root folder's name
 Root = ""                  # folder of the project's git repository
-Task = "classification"    # classification | object detection | segmentation
-DB = False                 # True when [Data] or [Prediction] uses Type = "DB"
+Task = "classification"    # one task or several, comma-separated: classification, object detection,
+                           # segmentation, anomaly detection, pose-estimation
+DB = False                 # True when [Data], [Label] or [Prediction] uses Type = "DB"
 
 [DB]                       # database connection, shown and used when [Project] DB = True
 DB = ""                    # supabase
@@ -17,20 +18,27 @@ DB_ip = ""                 # e.g. "http://127.0.0.1:54323/" or "postgresql://use
 Remote = ""                # e.g. "github.com:user/repo.git"
 Branch = ""                # e.g. "main"
 
-[Path]
+[Path]                     # each may hold one folder per task, e.g. Results/classification/<model>/
 Models = ""                # folder with model checkpoints
-Runs = ""                  # folder with one sub-folder per training run
+Hyperparameter = ""        # folder with one sub-folder per training run
 Results = ""               # folder with result files
 
-[Data]
+[Data]                     # the raw data files, one list for every task
 Type = ""                  # CSV | DB | Folder
-File_path = ""             # CSV: the csv listing the data files · Folder: the dataset folder (split/label/file)
-Table = ""                 # DB: table with one row per data file
-Label = ""                 # CSV / DB: ground-truth column; empty: "label"
+File_path = ""             # CSV: the csv listing the files · Folder: the dataset folder (split/label/file)
+Table = ""                 # DB: table with one row per file
+Raw = ""                   # CSV / DB: column with each raw file's path, e.g. "file_path"
 
-[Prediction]
+[Label]                    # ground truth, one <Task>_Label per task
 Type = ""                  # CSV | DB | Folder
-Path = ""                  # CSV: result file name / glob under Path.Results · Folder: folder of prediction files
+File_path = ""             # CSV: the labels csv · Folder: the folder the label folders are in
+Table = ""                 # DB: table with the labels
+Classification_Label = ""  # CSV / DB: its column · Folder: the class folders (any value)
+                           # other tasks: Segmentation_Label, Object_detection_Label, … (Folder: a label folder)
+
+[Prediction]               # any key can be set for one task as <Task>_<Key>, e.g. Segmentation_Predict
+Type = ""                  # CSV | DB | Folder
+File_path = ""             # CSV: result file name / glob under Path.Results/<task> · Folder: prediction folder
 Table = ""                 # DB: table with the predictions
 Format = ""                # Folder: txt | json
 Predict = ""               # CSV / DB: predicted-class column · json: its key

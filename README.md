@@ -102,7 +102,7 @@ Each page has a detailed guide in [Docs](Docs/README.md):
 | [Home](Docs/en/home.md) | Data / model / latest run / result summaries, next to the git history |
 | [Data](Docs/en/data.md) | Browse every data file, its split and label, and compare it with model predictions |
 | [Model](Docs/en/model.md) | A model file's graph in Netron, its properties and parameters by layer |
-| [Run](Docs/en/run.md) | A training run's progress, all of its hyperparameters, and the GPU |
+| [Hyperparameter](Docs/en/run.md) | A training run's progress, all of its hyperparameters, and the GPU |
 | [Result](Docs/en/result.md) | Charts from csv / jsonl / TensorBoard, curve comparison, tables, logs and images |
 | [Setting](Docs/en/setting.md) | Load a project file, see what was detected, switch the theme; the project file reference |
 
@@ -140,10 +140,10 @@ Viewing an older commit is read-only and never touches your working tree, index 
 ### Left sidebar
 
 Each page has a list on the left: root folders (Home), data folders and files (Data), model files
-(Model), runs (Run), result files (Result) and recent projects (Setting). All of them share:
+(Model), hyperparameter sets (Hyperparameter), result files (Result) and recent projects (Setting). All of them share:
 
 - **Filter box:** shows only the rows whose name contains the typed text (not case-sensitive).
-- **Folder trees** (Model, Run, Result): folders start collapsed; click one to open it. A folder that
+- **Folder trees** (Model, Hyperparameter, Result): folders start collapsed; click one to open it. A folder that
   only contains one subfolder is merged into a single row (`a/b/c/`). While you type a filter, every
   folder holding a match opens.
 - **Long lists:** only 200 rows around the selection are built at a time; use the filter to reach the rest.

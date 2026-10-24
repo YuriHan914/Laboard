@@ -16,7 +16,7 @@ Nothing here assumes particular file names, counts or formats:
   override them.
 * Models are files with a known checkpoint extension (``[models] extensions`` overrides);
   when none match, every file under ``paths.models`` is listed.
-* Runs are folders under ``paths.runs`` holding json / yaml / toml configs.
+* Runs (the Hyperparameter page) are folders under ``[Path] Hyperparameter`` holding json / yaml / toml configs.
 * Results are every file under ``paths.results``.
 
 File names that repeat in different folders are shown by their relative path, so each
@@ -63,14 +63,17 @@ FORMAT_COLORS = ["ink", "c2", "c3", "mute", "grid", "body"]
 MAX_DATA_FILES = 200_000  # rows read from a table / files from a data scan
 MAX_RESULT_FILES = 20_000
 MAX_RUNS, RUN_DEPTH = 500, 3
+PATH_LABELS = dict(data="Data", models="Models", runs="Hyperparameter", results="Results")  # paths keys as the toml names them
+MAX_CONFIG_ROWS = 2_000  # rows read from one run config (the Hyperparameter page shows them 20 per page)
 SNAPSHOT_ROOT = Path(tempfile.gettempdir()) / "laboard-snapshots"
+TASKS = tomledit.TASKS
 PRED_JSON_KEYS = dict(predict=("predict", "prediction", "class", "label", "pred"),
                       predict_score=("predict_score", "score", "confidence", "prob", "probability"))
 RESERVED = {"project", "git", "paths", "data", "models", "labels", "lables", "prediction"}  # toml tables that aren't a database
 
 _PATCHED = ("PROJECT", "COMMITS", "ROOT_FOLDERS", "DASH", "DATA_FOLDERS", "CLASSES", "SPLIT_TOTALS", "SPLIT_SOURCE",
             "SPLIT_OVERLAP", "MODEL_FILES", "MODEL_INFO", "RUNS", "RUN_DETAILS", "GPU", "RESULT_FILES",
-            "RESULT_PATHS", "RESULT_ROOT", "INFERENCE", "RECENT_PROJECTS", "TOML", "DETECTED", "STATUS")
+            "RESULT_PATHS", "RESULT_ROOT", "INFERENCE", "TASKS", "RECENT_PROJECTS", "TOML", "DETECTED", "STATUS")
 _original = None
 
 
@@ -416,7 +419,13 @@ def _load_data(db, data_cfg, paths, base, detected, notes, as_of=None):
 
 
 def _to_data(src, cols, base, notes, as_of):
-    """``_data`` from raw table / db rows. ``as_of`` (a commit's time) hides db rows created after it."""
+    """``_data`` from raw table / db rows (``_rows``)."""
+    rows = _rows(src, cols, base, notes, as_of)
+    return _data(rows, src[1], cols) if rows else None
+
+
+def _rows(src, cols, base, notes, as_of):
+    """Normalized rows from raw table / db rows. ``as_of`` (a commit's time) hides db rows created after it."""
     rows = _normalize(src[0], cols, src[1].get("base") or base)
     if as_of and src[1]["kind"] == "db":  # db rows aren't versioned in git; their created column dates them
         dated = [r for r in rows if r["created"] is None or r["created"] <= as_of]
@@ -426,13 +435,49 @@ def _to_data(src, cols, base, notes, as_of):
         else:
             notes.append("db rows have no created column; showing all of them")
         rows = dated
-    return _data(rows, src[1], cols) if rows else None
+    return rows
 
 
-# ---------------------------------------------------------------- task = "classification": [data] / [prediction]
+# ---------------------------------------------------------------- task projects: [Data] / [Label] / [Prediction]
+_task_id = tomledit.task_id
+TASK_IDS = {_task_id(t): t for t in TASKS}
+
+
+def _tasks(value, notes):
+    """The tasks of ``[Project] Task``: one name or a comma-separated list, in order."""
+    out = []
+    for part in str(value or "").split(","):
+        if not part.strip():
+            continue
+        task = TASK_IDS.get(_task_id(part))
+        if task is None:
+            notes.append(f"[Project] Task: unknown task {part.strip()!r} (one of {', '.join(TASKS)})")
+        elif task not in out:
+            out.append(task)
+    return out
+
+
+def _per_task(section, suffix):
+    """{task: value} of a section's ``<task>_<suffix>`` keys (normalized), e.g. object_detection_label."""
+    out = {}
+    for k, v in section.items():
+        if k.endswith("_" + suffix) and v not in (None, ""):
+            task = TASK_IDS.get(_task_id(k[:-len(suffix) - 1]))
+            if task:
+                out[task] = v
+    return out
+
+
+def _task_dir(folder, task):
+    """The sub-folder of ``folder`` named after ``task`` (in any case / spacing), or None."""
+    if not folder or not folder.is_dir():
+        return None
+    return next((d for d in sorted(folder.iterdir()) if d.is_dir() and _task_id(d.name) == _task_id(task)), None)
+
+
 def _db_rows(cfg, table, section, detected, notes, cache):
-    """(rows, src) of ``table`` through the [db] connection, or None (noted). ``cache``: table → result,
-    so [data] and [prediction] on one table query it once."""
+    """(rows, src) of ``table`` through the [DB] connection, or None (noted). ``cache``: table → result,
+    so [Data], [Label] and [Prediction] on one table query it once."""
     if table in cache:
         return cache[table]
     cache[table] = None
@@ -452,45 +497,141 @@ def _db_rows(cfg, table, section, detected, notes, cache):
     return cache[table]
 
 
-def _classification_data(cfg, paths, detected, notes, as_of, cache):
-    """[data] ``type`` = "db" (``table``) | "csv" (``file_path``) | "folder" (``file_path``, split/label/file).
+def _csv_rows(f, section, notes):
+    """(rows, src) of a csv / tsv / jsonl / parquet file, or None (noted)."""
+    if not f or not f.is_file():
+        notes.append(f"[{section}] File_path {f or '(not set)'} is not a file")
+        return None
+    try:
+        return _read_table(f), dict(kind="file", name=f.name, where=str(f), label=f"{f.suffix[1:]} · {f.name}", base=f.parent)
+    except (OSError, ValueError, ImportError) as e:
+        notes.append(f"{f.name}: {e}")
+        return None
 
-    For db / csv the ground truth is the ``label`` column (default "label") and the file-path column is
-    guessed, or set with ``path``. Predictions never come from the data; they're read from [prediction].
+
+def _task_data(cfg, paths, base, tasks, detected, notes, as_of, cache):
+    """Data rows of a task project: the files of [Data] (one source for every task), each with its ground truth
+    per task from [Label] (``_attach_labels``).
+
+    [Data] Type = "DB" (``Table``) | "CSV" (``File_path``: the csv listing the files) | "Folder" (``File_path``: the
+    dataset folder, split/label/file). For DB / CSV, ``Raw`` names the column with each raw file's path (guessed
+    when left out).
+    Predictions never come from the data; they're read from [Prediction].
     """
     dcfg = cfg.get("data", {})
-    kind = str(dcfg.get("type", "")).lower()
+    kind = str(dcfg.get("type") or "").lower()
     if kind == "folder":
         pcfg = cfg.get("prediction", {})
-        skip = {"." + str(pcfg.get("format") or "txt").lower().lstrip(".")} if str(pcfg.get("type", "")).lower() == "folder" else set()
+        skip = {"." + str(pcfg.get("format") or "txt").lower().lstrip(".")} if str(pcfg.get("type") or "").lower() == "folder" else set()
         src = _rows_from_scan(paths["data"], skip)  # prediction files kept next to the data aren't data
-        return _data(src[0], src[1], dict.fromkeys(COLS)) if src else None
-    if kind == "db":
-        src = _db_rows(cfg, dcfg.get("table"), "data", detected, notes, cache)
-    elif kind == "csv":
-        f = paths["data"]
-        if not f or not f.is_file():
-            notes.append(f"[Data] File_path {dcfg.get('file_path')} is not a file")
+        if not src:
             return None
-        try:
-            src = _read_table(f), dict(kind="file", name=f.name, where=str(f), label=f"{f.suffix[1:]} · {f.name}", base=f.parent)
-        except (OSError, ValueError, ImportError) as e:
-            notes.append(f"{f.name}: {e}")
-            return None
+        cols, rows = dict.fromkeys(COLS), src[0]
+        for r in rows:
+            r["folder_label"] = r["label"]  # the class folder; [Label] decides what each task's label is
     else:
-        notes.append(f"[Data] Type must be DB, CSV or Folder, not {dcfg.get('type')!r}" if kind else "[Data] Type is not set")
+        if kind == "db":
+            src = _db_rows(cfg, dcfg.get("table"), "Data", detected, notes, cache)
+        elif kind == "csv":
+            src = _csv_rows(paths["data"], "Data", notes)
+        else:
+            notes.append(f"[Data] Type must be DB, CSV or Folder, not {dcfg.get('type')!r}" if kind else "[Data] Type is not set")
+            return None
+        if not src or not src[0]:
+            return None
+        path_col = dcfg.get("raw")
+        cols = _columns(src[0], {"path": path_col} if path_col else {})
+        cols.update(label=None, predict=None)
+        if not cols["path"]:
+            notes.append(f"{src[1]['label']}: no file-path column found (set [Data] Raw)")
+            return None
+        rows = _rows(src, cols, paths["data"], notes, as_of)
+    if not rows:
         return None
-    if not src or not src[0]:
-        return None
-    gt = dcfg.get("label") or "label"
-    cols = _columns(src[0], {"path": dcfg["path"]} if dcfg.get("path") else {})
-    cols.update(label=gt if any(gt in r for r in src[0][:50]) else None, predict=None)
-    if not cols["path"]:
-        notes.append(f"{src[1]['label']}: no file-path column found (set [Data] Path)")
-        return None
-    if not cols["label"]:
-        notes.append(f"{src[1]['label']}: no '{gt}' column; files have no ground truth")
-    return _to_data(src, cols, paths["data"], notes, as_of)
+    _attach_labels(cfg, paths, base, tasks, rows, kind, src, cols, detected, notes, cache)
+    d = _data(rows, src[1], cols)
+    d["dash"]["task"] = " · ".join(t[:1].upper() + t[1:] for t in tasks)
+    return d
+
+
+def _label_files(folder):
+    """(by path under ``folder`` without extension, by file stem) for every file in it."""
+    by_rel, by_stem = {}, {}
+    for dp, fs in _walk(folder):
+        for f in fs:
+            by_rel[os.path.splitext(_rel(dp / f, folder))[0]] = dp / f
+            by_stem.setdefault(Path(f).stem, dp / f)
+    return by_rel, by_stem
+
+
+def _attach_labels(cfg, paths, base, tasks, rows, data_kind, data_src, data_cols, detected, notes, cache):
+    """Give each row ``labels`` ({task: ground truth or None}) and ``label`` (the first task's: CLASSES and the
+    viewer's default use it), from [Label].
+
+    [Label] Type = "DB" / "CSV": ``<Task>_Label`` names the column with that task's ground truth, in ``Table`` /
+    ``File_path`` (default: [Data]'s), matched to the data by the raw-file path column (``Raw``, default [Data]'s).
+    Type = "Folder": classification reads the split/label/file layout of a Folder data source; another task's
+    ``<Task>_Label`` names a folder of label files (absolute, or under ``File_path``, default the data folder), one
+    per data file with the same name.
+    """
+    lcfg, dcfg = cfg.get("label", {}), cfg.get("data", {})
+    keys = _per_task(lcfg, "label")
+    kind = str(lcfg.get("type") or data_kind).lower()
+    for r in rows:
+        r["labels"] = dict.fromkeys(tasks)
+    title = lambda t: tomledit.title(t.replace(" ", "_").replace("-", "_"))
+
+    if kind == "folder":
+        root = _resolve(lcfg.get("file_path"), base) or (paths["data"] if paths["data"] and paths["data"].is_dir() else base)
+        for t in tasks:
+            if t == "classification":
+                if data_kind != "folder":
+                    notes.append("[Label] Type = Folder: classification labels come from a [Data] Type = Folder layout")
+                for r in rows:
+                    r["labels"][t] = r.get("folder_label")
+                continue
+            if t not in keys:
+                continue
+            folder = _resolve(keys[t], root)
+            if not folder or not folder.is_dir():
+                notes.append(f"[Label] {title(t)}_Label: no folder {keys[t]}")
+                continue
+            by_rel, by_stem = _label_files(folder)
+            data_root = os.path.commonpath([os.path.dirname(r["path"]) for r in rows])
+            for r in rows:
+                f = by_rel.get(os.path.splitext(os.path.relpath(r["path"], data_root))[0]) or by_stem.get(Path(r["path"]).stem)
+                r["labels"][t] = f.name if f else None
+            if not by_rel:
+                notes.append(f"[Label] {title(t)}_Label: no label files in {folder}")
+    elif kind in ("db", "csv"):
+        table, file = lcfg.get("table") or dcfg.get("table"), _resolve(lcfg.get("file_path"), base) or paths["data"]
+        if kind == data_kind and (kind == "csv" and file == paths["data"] or kind == "db" and table == dcfg.get("table")):
+            src, path_col = data_src, data_cols["path"]  # the labels sit next to the files
+        else:
+            src = _db_rows(cfg, table, "Label", detected, notes, cache) if kind == "db" else _csv_rows(file, "Label", notes)
+            raw = lcfg.get("raw") or dcfg.get("raw")
+            path_col = _columns(src[0], {"path": raw} if raw else {})["path"] if src and src[0] else None
+        if src and src[0] and path_col:
+            names = set(src[0][0])
+            for t, c in keys.items():
+                if c not in names:
+                    notes.append(f"[Label] {title(t)}_Label: no column {c!r} in {src[1]['name']}")
+            at = src[1].get("base")
+            index = {os.path.normpath(_abs(r[path_col], at)): r for r in src[0] if r.get(path_col)}
+            for r in rows:
+                raw = index.get(os.path.normpath(r["path"]))
+                for t, c in keys.items():
+                    v = raw.get(c) if raw else None
+                    r["labels"][t] = None if v in (None, "") or (isinstance(v, float) and v != v) else str(v)
+        elif src and src[0]:
+            notes.append(f"[Label] {src[1]['name']}: no file-path column")
+    else:
+        notes.append(f"[Label] Type must be DB, CSV or Folder, not {lcfg.get('type')!r}")
+    for t in tasks:
+        if t not in keys and not (kind == "folder" and t == "classification"):
+            notes.append(f"[Label] no {title(t)}_Label: {t} files have no ground truth")
+    for r in rows:
+        r["label"] = r["labels"][tasks[0]]
 
 
 def _pred_txt(f):
@@ -517,46 +658,67 @@ def _pred_json(f, keys):
     return {k: d.get(key) if key else next((d[a] for a in PRED_JSON_KEYS[k] if a in d), None) for k, key in keys.items()}
 
 
-def _classification_predictions(cfg, paths, base, rows, detected, notes, cache):
-    """[prediction] ``type`` = "csv" | "db" | "folder", as {source: dict} like ``store.INFERENCE``.
+PRED_KEYS = ("type", "file_path", "table", "format", "predict", "predict_score")
 
-    * csv: ``path`` is a result file name / glob under paths.results (or an absolute path); one source per match.
-    * db: ``table``; rows match data files by their file-path column.
-    * folder: ``path`` holds one ``<file stem>.<format>`` per data file, at the data file's place in the data
-      tree or anywhere by stem: a txt holding "<class> [score]", or a json object.
 
-    ``predict`` / ``predict_score`` name the class / score columns of csv and db, and the keys of a json
-    (guessed from PRED_JSON_KEYS when left out).
+def _task_predictions(cfg, paths, base, rows, tasks, detected, notes, cache):
+    """{source: dict(task, file, rel, shows, by_path, by_name)} like ``store.INFERENCE``: each task's predictions.
+
+    [Prediction] keys apply to every task; ``<Task>_<Key>`` (``Object_detection_Predict``, ``Segmentation_File_path``, …)
+    overrides one for that task. With task folders under [Path] Results (Results/classification/…), CSV results
+    are looked for in the task's own folder. With several tasks, a source's name starts with its task.
     """
     pcfg = cfg.get("prediction", {})
-    kind = str(pcfg.get("type", "")).lower()
-    shows = {k: pcfg[k] for k in ("predict", "predict_score") if pcfg.get(k)}
+    task_dirs = any(_task_dir(paths["results"], t) for t in TASKS)
+    out = {}
+    for t in tasks:
+        pc = {k: _per_task(pcfg, k).get(t, pcfg.get(k)) for k in PRED_KEYS} | dict(results_root=paths["results"])
+        where = "[Prediction]" + (f" {t}" if len(tasks) > 1 else "")
+        results = _task_dir(paths["results"], t) if task_dirs else paths["results"]
+        for name, src in _predictions(pc, cfg, base, results, rows, detected, notes, cache, where).items():
+            src["task"] = t
+            out[f"{t} · {name}" if len(tasks) > 1 else name] = src
+    return out
+
+
+def _predictions(pc, cfg, base, results, rows, detected, notes, cache, where):
+    """One task's predictions (``pc``: its [Prediction] keys). Type = "CSV": ``File_path`` is a result file name /
+    glob under ``results`` (or an absolute path), one source per match. "DB": ``Table``, matched by its file-path
+    column. "Folder": ``File_path`` holds one ``<file stem>.<Format>`` per data file, at the data file's place in the data tree or
+    anywhere by stem: a txt holding "<class> [score]", or a json object. ``Predict`` / ``Predict_score`` name the
+    class / score columns of CSV and DB, and the keys of a json (guessed from PRED_JSON_KEYS when left out)."""
+    kind = str(pc.get("type") or "").lower()
+    shows = {k: pc[k] for k in ("predict", "predict_score") if pc.get(k)}
     if kind == "csv":
-        sources, inotes = _inference(pcfg.get("path"), shows, paths["results"], what="[Prediction] Path")
+        if results is None:
+            notes.append(f"{where}: no folder for it under Path.Results")
+            return {}
+        under = "Path.Results" + (f"/{results.name}" if results.parent == pc["results_root"] else "")
+        sources, inotes = _inference(pc.get("file_path"), shows, results, what=f"{where} File_path", under=under)
         notes += inotes
         return sources
     if kind == "db":
-        table = pcfg.get("table")
-        src = _db_rows(cfg, table, "prediction", detected, notes, cache)
+        table = pc.get("table")
+        src = _db_rows(cfg, table, "Prediction", detected, notes, cache)
         if not src or not src[0]:
             return {}
         col = _columns(src[0], {})["path"]
         if not col:
-            notes.append(f"[Prediction] {table}: no file-path column")
+            notes.append(f"{where} {table}: no file-path column")
             return {}
         lost = [c for c in shows.values() if c not in src[0][0]]
         if lost:
-            notes.append(f"[Prediction] {table}: no column {', '.join(lost)}")
+            notes.append(f"{where} {table}: no column {', '.join(lost)}")
         by_path, by_name = _index(src[0], col, shows, None)
         return {f"db · {table}": dict(file=src[1]["where"], rel=f"db · {table}", shows=shows, by_path=by_path, by_name=by_name)}
     if kind == "folder":
-        fmt = str(pcfg.get("format") or "txt").lower().lstrip(".")
-        pdir = _resolve(pcfg.get("path"), base)
+        fmt = str(pc.get("format") or "txt").lower().lstrip(".")
+        pdir = _resolve(pc.get("file_path"), base)
         if fmt not in ("txt", "json"):
-            notes.append(f"[Prediction] Format {fmt} isn't supported (txt, json)")
+            notes.append(f"{where} Format {fmt} isn't supported (txt, json)")
             return {}
         if not pdir or not pdir.is_dir():
-            notes.append(f"[Prediction] Path {pcfg.get('path')} is not a folder")
+            notes.append(f"{where} File_path {pc.get('file_path')} is not a folder")
             return {}
         by_rel, by_stem = {}, {}
         for dp, fs in _walk(pdir):
@@ -565,10 +727,10 @@ def _classification_predictions(cfg, paths, base, rows, detected, notes, cache):
                     by_rel[os.path.splitext(_rel(dp / f, pdir))[0]] = dp / f
                     by_stem.setdefault(Path(f).stem, dp / f)
         if not by_rel:
-            notes.append(f"[Prediction] no .{fmt} files under {pdir}")
+            notes.append(f"{where} no .{fmt} files under {pdir}")
             return {}
         root = os.path.commonpath([os.path.dirname(r["path"]) for r in rows]) if rows else str(pdir)
-        keys = {k: pcfg.get(k) for k in ("predict", "predict_score")}
+        keys = {k: pc.get(k) for k in ("predict", "predict_score")}
         read = (lambda f: _pred_json(f, keys)) if fmt == "json" else _pred_txt
         by_path = {}
         for r in rows:
@@ -581,7 +743,7 @@ def _classification_predictions(cfg, paths, base, rows, detected, notes, cache):
             shows = dict(predict="txt · 1st value", predict_score="txt · 2nd value")
         return {f"{pdir.name}/": dict(file=str(pdir), rel=f"{pdir.name}/ · *.{fmt}", by_path=by_path, by_name={},
                                       shows=shows)}
-    notes.append(f"[Prediction] Type must be CSV, DB or Folder, not {pcfg.get('type')!r}" if kind else "[Prediction] Type is not set")
+    notes.append(f"{where} Type must be CSV, DB or Folder, not {pc.get('type')!r}" if kind else f"{where} Type is not set")
     return {}
 
 
@@ -685,6 +847,13 @@ def _snapshot(top, rev, rels):
 
 
 # ---------------------------------------------------------------- models
+def _model_group(rel):
+    """The model a file under paths.models belongs to: its first folder, or the first two under a task folder
+    (Models/classification/<model>/…)."""
+    parts = Path(rel).parts
+    return "/".join(parts[:2]) if len(parts) > 2 and _task_id(parts[0]) in TASK_IDS else parts[0]
+
+
 def _models(models_dir, mcfg):
     exts = {e if e.startswith(".") else "." + e: MODEL_EXT.get(e, e.lstrip(".").upper())
             for e in (e.lower() for e in mcfg.get("extensions", []))} or MODEL_EXT
@@ -700,7 +869,7 @@ def _models(models_dir, mcfg):
         st = p.stat()
         ext = p.suffix.lower()
         found.append(dict(path=p, ext=ext, fmt=exts.get(ext) or (ext[1:].upper() or "FILE"), bytes=st.st_size,
-                          mtime=st.st_mtime, folder=_rel(dp, models_dir), group=Path(_rel(p, models_dir)).parts[0]))
+                          mtime=st.st_mtime, folder=_rel(dp, models_dir), group=_model_group(_rel(p, models_dir))))
     for m, label in zip(found, _labels([m["path"] for m in found], models_dir)):
         m["label"] = label
     rows, info = [], {}
@@ -777,7 +946,7 @@ def _run_detail(run_dir, name, git, runs_dir):
             continue
         rows = [(k, v, f.name) for k, v in _flatten(d)]
         if rows:
-            sections.append((f.stem.replace("_", " ").capitalize(), f.name, rows[:40], False))
+            sections.append((f.stem.replace("_", " ").capitalize(), f.name, rows[:MAX_CONFIG_ROWS], False))
         if "config" in f.stem or "args" in f.stem or "hparams" in f.stem:
             cfg.update(d)
     state = _read_config(run_dir / "trainer_state.json") or {}
@@ -827,7 +996,7 @@ def _runs(runs_dir, git):
     return dict(RUNS=[r[0] for r in out], RUN_DETAILS={r[0][0]: (r[1], r[2]) for r in out},
                 dash=dict(run_note=(name, info["commit"], f"{info['started']} · read from {', '.join(info['sources'][:4])}"),
                           hp=hp),
-                detected=[("Runs", f"{runs_dir.name}/ · {len(out)} run{'s' if len(out) != 1 else ''}", "positive", "Found")])
+                detected=[("Hyperparameter", f"{runs_dir.name}/ · {len(out)} set{'s' if len(out) != 1 else ''}", "positive", "Found")])
 
 
 # ---------------------------------------------------------------- results
@@ -887,7 +1056,7 @@ def _index(rows, path_col, shows, base):
     return by_path, by_name
 
 
-def _inference(name, shows, results_dir, path_col=None, what="[Labels] Result_file"):
+def _inference(name, shows, results_dir, path_col=None, what="[Labels] Result_file", under="Path.Results"):
     """Inference columns from result files: ``[labels]`` (also read when spelled ``[lables]``) and
     ``[prediction] type = "csv"``.
 
@@ -904,7 +1073,7 @@ def _inference(name, shows, results_dir, path_col=None, what="[Labels] Result_fi
     else:
         files = sorted(f for f in results_dir.rglob(name) if f.is_file()) if results_dir and results_dir.is_dir() else []
     if not files:
-        return {}, [f"{what} {name} not found under Path.Results"]
+        return {}, [f"{what} {name} not found under {under}"]
     sources, notes = {}, []
     for f in files:
         try:
@@ -921,7 +1090,8 @@ def _inference(name, shows, results_dir, path_col=None, what="[Labels] Result_fi
         if lost:
             notes.append(f"{_rel(f, results_dir)}: no column {', '.join(lost)}")
         by_path, by_name = _index(rows, cols["path"], shows, f.parent)
-        src = _rel(f.parent, results_dir) if f.parent != results_dir else f.name
+        inside = results_dir is not None and f.is_relative_to(results_dir)
+        src = _rel(f.parent, results_dir) if inside and f.parent != results_dir else f.name  # a file given outside: its name
         sources[src] = dict(file=str(f), rel=_rel(f, results_dir.parent if results_dir else f.parent),
                             shows=shows, by_path=by_path, by_name=by_name)
     return sources, notes
@@ -989,20 +1159,23 @@ def load(toml_path, commit=None, text=None):
 def _load(toml_path, cfg, commit, text=None):
     base = toml_path.parent
     proj, gcfg, pcfg = cfg.get("project", {}), cfg.get("git", {}), cfg.get("paths", {})
-    # task = "classification": [data] / [prediction] say where data and predictions are (see _classification_data)
-    classification = str(proj.get("task", "")).lower() == "classification"
+    notes, detected, dash = [], [], {}
+    # [Project] Task (one task or several): [Data] / [Label] / [Prediction] say where data, labels and predictions
+    # are (see _task_data); without one, the older paths.data / [db] / [labels] format
+    tasks = _tasks(proj.get("task"), notes)
+    task_mode = bool(tasks)
+    _set("TASKS", tasks)
     dcfg = cfg.get("data", {})
-    if classification:
+    if task_mode:
         ref, db_key = dcfg.get("file_path") if str(dcfg.get("type", "")).lower() in ("csv", "folder") else None, None
     else:
         # paths.data naming a toml table (data = "DB" → [DB]) reads rows from that database only
         ref = pcfg.get("data")
         db_key = ref.lower() if isinstance(ref, str) and ref.lower() not in RESERVED and isinstance(cfg.get(ref.lower()), dict) else None
-    paths = {k: None if k == "data" and db_key else _resolve(ref if k == "data" else pcfg.get(k), base)
-             for k in ("data", "models", "runs", "results")}
+    paths = {k: None if k == "data" and db_key else _resolve(ref if k == "data" else pcfg.get("hyperparameter" if k == "runs" else k), base)
+             for k in ("data", "models", "runs", "results")}  # [Path] Hyperparameter → paths["runs"]
     root = _resolve(proj.get("root"), base) or next((p for p in paths.values() if p), base)
     name = proj.get("name") or root.name
-    notes, detected, dash = [], [], {}
 
     git = _git_info(root, gcfg)
     top = git["top"] if git else None
@@ -1027,13 +1200,13 @@ def _load(toml_path, cfg, commit, text=None):
             else:
                 paths[k] = None
                 missing[k] = f"{p} · not tracked in git at {sha[:7]}" if k in rels else f"{p} · outside the git repository"
-                notes.append(f"Path.{k.capitalize()} is {'not tracked at ' + sha[:7] if k in rels else 'outside the repository'}")
+                notes.append(f"Path.{PATH_LABELS[k]} is {'not tracked at ' + sha[:7] if k in rels else 'outside the repository'}")
         view = dict(short=sha[:7], when=datetime.fromtimestamp(int(_run("git", "show", "-s", "--format=%ct", sha, cwd=top))))
         detected.insert(1, ("Snapshot", f"{sha[:7]} · {view['when']:%b %d, %H:%M} · read-only", "warning", "Past commit"))
 
     as_of, db_cache = view["when"] if view else None, {}
-    if classification:
-        d = _classification_data(cfg, paths, detected, notes, as_of, db_cache)
+    if task_mode:
+        d = _task_data(cfg, paths, base, tasks, detected, notes, as_of, db_cache)
     else:
         d = _load_data(cfg.get(db_key or "db", {}), dcfg, paths, base, detected, notes, as_of=as_of)
     if d:
@@ -1043,7 +1216,7 @@ def _load(toml_path, cfg, commit, text=None):
         detected += d["detected"]
     else:
         notes.append("No data rows found")
-        if classification:
+        if task_mode:
             where = f"[Data] Type = {dcfg.get('type')} · {dcfg.get('table') or dcfg.get('file_path') or 'no Table / File_path'}"
         else:
             where = f"[{ref}] {cfg[db_key].get('table', 'no table')}" if db_key else str(paths["data"] or "Path.Data not set")
@@ -1056,8 +1229,8 @@ def _load(toml_path, cfg, commit, text=None):
         p = paths[key]
         part = fn(p) if p and p.is_dir() else None
         if part is None:
-            notes.append(f"Nothing found in Path.{key.capitalize()}")
-            detected.append((key.capitalize(), missing.get(key) or str(p or f"Path.{key.capitalize()} not set"), "warning", "Not found"))
+            notes.append(f"Nothing found in Path.{PATH_LABELS[key]}")
+            detected.append((PATH_LABELS[key], missing.get(key) or str(p or f"Path.{PATH_LABELS[key]} not set"), "warning", "Not found"))
             continue
         for k, v in part.items():
             if k not in ("dash", "detected"):
@@ -1067,21 +1240,24 @@ def _load(toml_path, cfg, commit, text=None):
 
     lcfg = cfg.get("labels") or cfg.get("lables")
     pred = cfg.get("prediction")
-    if classification and pred:
+    if task_mode and pred:
         rows = [r for fd in d["DATA_FOLDERS"].values() for r in fd["rows"]] if d else []
-        inference = _classification_predictions(cfg, paths, base, rows, detected, notes, db_cache)
+        inference = _task_predictions(cfg, paths, base, rows, tasks, detected, notes, db_cache)
         _set("INFERENCE", inference)
-        what = f"[Prediction] Type = {pred.get('type')} · {pred.get('table') or pred.get('path') or '—'}"
-        # data files with at least one prediction value in some source
-        n = len({p for src in inference.values() for p, rec in src["by_path"].items()
-                 if any(v not in (None, "") for v in rec["values"].values())} & {os.path.normpath(r["path"]) for r in rows})
-        if n:
+        what = f"[Prediction] Type = {pred.get('type')} · {pred.get('table') or pred.get('file_path') or '—'}"
+        files = {os.path.normpath(r["path"]) for r in rows}
+        found = []  # (task, data files with at least one prediction value in some source of it)
+        for t in tasks:
+            n = len({p for src in inference.values() if src["task"] == t for p, rec in src["by_path"].items()
+                     if any(v not in (None, "") for v in rec["values"].values())} & files)
+            found.append((t, n))
+        if any(n for _, n in found):
             cols = ", ".join(f"{tomledit.title(k)}={v}" for k, v in next(iter(inference.values()))["shows"].items())
-            detected.append(("Prediction", f"{what} · {len(inference)} source(s) · {n:,} of {len(rows):,} files · {cols}",
-                             "positive", "Found"))
+            per = " · ".join(f"{t} {n:,}" for t, n in found) if len(tasks) > 1 else f"{found[0][1]:,} of {len(rows):,} files"
+            detected.append(("Prediction", f"{what} · {len(inference)} source(s) · {per} · {cols}", "positive", "Found"))
         else:
             detected.append(("Prediction", what, "warning", "Not found"))
-    elif lcfg and not classification:
+    elif lcfg and not task_mode:
         shows = {k: v for k, v in lcfg.items() if k not in ("result_file", "path")}
         inference, inotes = _inference(lcfg.get("result_file"), shows, paths["results"], lcfg.get("path"))
         _set("INFERENCE", inference)
@@ -1105,10 +1281,10 @@ def _load(toml_path, cfg, commit, text=None):
         dirty=(f"{git['dirty']} uncommitted" if git["dirty"] else "clean") if git else "no git",
         commits=(f"{_run('git', 'rev-list', '--count', view['short'], cwd=top).strip()} · {git['authors']} contributors"
                  if view else f"{git['n']} · {git['authors']} contributors") if git else "—",
-        runs_linked=f"{n_runs} run{'s' if n_runs != 1 else ''}", hot_file=git["hot_file"] if git else "",
+        runs_linked=f"{n_runs} set{'s' if n_runs != 1 else ''}", hot_file=git["hot_file"] if git else "",
         **({k: git[k] for k in ("head", "upstream", "ahead", "behind", "fetched")} if git else {})))
     _set("ROOT_FOLDERS", [(name, str(root.parent) + "/", str(root))] +
-         [(k, _rel(p, root), str(p)) for k, p in paths.items() if p])
+         [(PATH_LABELS[k], _rel(p, root), str(p)) for k, p in paths.items() if p])
     _set("RECENT_PROJECTS", [(name, str(toml_path.parent))])
     _set("TOML", (toml_path.read_text() if text is None else text).splitlines())
     _set("DETECTED", detected)

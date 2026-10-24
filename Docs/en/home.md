@@ -7,7 +7,7 @@
 
 **English** | [한국어](../ko/home.md)
 
-Home is the project at a glance. The centre has four summary cards: Data, Model, Latest run and Result.
+Home is the project at a glance. The centre has four summary cards: Data, Model, Latest hyperparameter and Result.
 The right side shows the project's git history. Each card has an **Open** link that jumps to its page.
 
 If no project is loaded, Home shows *No project loaded* and points you to Setting.
@@ -22,7 +22,7 @@ If no project is loaded, Home shows *No project loaded* and points you to Settin
 | Remote | The `origin` URL |
 | Branch | The current branch and how it compares with its upstream (e.g. `ahead 1`, `up to date with origin/main`). While viewing an older commit: `detached at <hash> · read-only snapshot` |
 | Commits | The number of commits and of contributors |
-| Runs linked | How many runs were found under `paths.runs` |
+| Hyperparameter sets | How many hyperparameter sets (training runs) were found under `[Path] Hyperparameter` |
 
 ### Root folders
 
@@ -53,9 +53,9 @@ When a card has nothing to show, it says what is missing, for example *No model 
 | Format | A stacked bar and legend of the file formats (PyTorch, ONNX, safetensors, …), with a count and extensions for each |
 | Table | Up to 8 models, most recently changed first: **Model · Formats · Files · Size** |
 
-### Latest run
+### Latest hyperparameter
 
-This card shows the run that was changed most recently.
+This card shows the hyperparameter set (training run) that was changed most recently.
 
 - A note gives the run's name, the last commit that touched its folder, when it was modified and the
   config files it was read from.

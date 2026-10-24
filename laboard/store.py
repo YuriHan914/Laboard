@@ -45,7 +45,8 @@ RESULT_PATHS = {}  # file label → absolute path
 RESULT_ROOT = ""
 # [labels] result files: source (folder under results) → dict(file, rel, shows={key: column},
 # by_path={data path: dict(values={key: value})}, by_name={file name: same})
-INFERENCE = {}
+INFERENCE = {}  # plus task=… for a task project: the task a source's predictions are for
+TASKS = []  # [Project] Task of a task project, in order (the first one's label is a row's "label")
 
 # ---------------------------------------------------------------- Setting
 RECENT_PROJECTS = []  # (name, folder)

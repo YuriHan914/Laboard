@@ -15,7 +15,7 @@ from .theme import T
 from .widgets import (Box, Button, Chevron, Collapsing, Dot, HLine, InfoIcon, Label, Logo, Pill, Scroll, Segmented, SideHandle,
                       SplashLogo, clear_layout, hbox, mono_span, vbox, wrap)
 
-TABS = [("home", "Home"), ("data", "Data"), ("model", "Model"), ("run", "Run"), ("result", "Result"), ("setting", "Setting")]
+TABS = [("home", "Home"), ("data", "Data"), ("model", "Model"), ("run", "Hyperparameter"), ("result", "Result"), ("setting", "Setting")]
 PAGES = dict(home=home, data=data, model=model, run=run, result=result, setting=setting)
 
 
@@ -159,9 +159,10 @@ class CommitPicker(QFrame):
         note = Label(sync, 12, 400, "body", rich=True, wrap=True)
         note.setContentsMargins(10, 0, 10, 8)
         lay.addWidget(note)
+        self.seg = None
         if P.get("upstream"):
-            seg = Segmented(LOG_FILTERS, app.s.log_filter, self.set_filter, expand=True, pad=(5, 0))
-            lay.addLayout(hbox(seg, margins=(10, 0, 10, 4)))
+            self.seg = Segmented(LOG_FILTERS, app.s.log_filter, self.set_filter, expand=True, pad=(5, 0))
+            lay.addLayout(hbox(self.seg, margins=(10, 0, 10, 4)))
         self.rows = vbox()
         self.sc = Scroll(wrap(vbox(self.rows, "stretch")))
         lay.addWidget(self.sc)
@@ -212,6 +213,8 @@ class CommitPicker(QFrame):
 
     def set_filter(self, kind):
         self.app.s.log_filter = kind
+        if self.seg is not None:
+            self.seg.select(kind)  # the popup isn't rebuilt: move the white segment to the choice here
         self.populate()
 
     def fetch(self):
@@ -253,11 +256,13 @@ class MainWindow(QMainWindow):
         lasts only while the user stays on the page: switching tabs puts all of it back to this."""
         return dict(
             hist_filter="all", open_commit=_first(store.COMMITS) or None, smooth=0.6, split_filter="all",
-            view_mode="raw", show_src=True, zoom=None, pending_toml=None, pt_view="inferred", log_filter="all",
+            view_mode="raw", zoom=None, pending_toml=None, pt_view="inferred", log_filter="all",
             toml_view="fields",  # Setting: project file shown as fields or as text
             setting_scroll=0,  # Setting: how far the page is scrolled, kept when Edit → Save reloads it
             table_page={},  # Result csv table: page shown, by file
             table_open=set(),  # big Result csv tables the user unfolded, by file
+            run_page={},  # Hyperparameter tables: page shown, by (run, file)
+            run_open=set(),  # Hyperparameter tables the user opened (all start closed), by (run, file)
             chart_sel={},  # Result charts the user ticked: (file, tag) -> colour slot in the comparison
             chart_size={},  # Result charts the user resized: (file, tag) or "compare" -> (width or None, plot height)
             open_dirs=dict(model=set(), run=set(), result=set()))  # sidebar tree folders the user expanded
@@ -267,6 +272,7 @@ class MainWindow(QMainWindow):
         folder = next(iter(store.DATA_FOLDERS), "")
         self.s = SimpleNamespace(
             tab=tab, folder=folder, view_commit=None, infer_source=next(iter(store.INFERENCE), None),
+            task=store.TASKS[0] if store.TASKS else None,  # Data: the task whose labels and predictions are shown
             sel=dict(home=store.PROJECT.get("hot_file", ""), data=store.DATA_FOLDERS[folder]["files"][0] if folder else "",
                      model=_first(store.MODEL_FILES), run=_first(store.RUNS), result=_first(store.RESULT_FILES),
                      setting=_first(store.RECENT_PROJECTS)),
@@ -294,6 +300,8 @@ class MainWindow(QMainWindow):
                 setattr(self.s, k, getattr(old, k))
             if old.infer_source in store.INFERENCE:
                 self.s.infer_source = old.infer_source
+            if old.task in store.TASKS:
+                self.s.task = old.task
             valid = dict(model=store.MODEL_INFO, run=store.RUN_DETAILS, result=store.RESULT_PATHS)
             for tab, keys in valid.items():
                 if old.sel[tab] in keys:
@@ -405,6 +413,15 @@ class MainWindow(QMainWindow):
         self.set(open_dirs={**self.s.open_dirs, tab: dirs - {path} if path in dirs else dirs | {path}})
 
     def pick(self, tab, name):
+        """Select ``name`` on ``tab``. A page with ``select(app, name)`` (Data) shows it in place, without the
+        flicker of rebuilding the window; otherwise the window re-renders."""
+        old, self.s.sel = self.s.sel, {**self.s.sel, tab: name}
+        page = PAGES.get(tab)
+        if tab == self.s.tab and hasattr(page, "select") and page.select(self, name):
+            if not self.file_list.mark(name):  # its row isn't among the rows built: rebuild the list only
+                self.file_list.populate(self.file_list.search.text())
+            return
+        self.s.sel = old
         self.set(sel={**self.s.sel, tab: name})
 
     def view_index(self):

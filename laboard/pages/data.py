@@ -2,6 +2,7 @@
 import os
 from datetime import datetime
 
+from PyQt6 import sip
 from PyQt6.QtCore import QRect, QRectF, QSize, Qt
 from PyQt6.QtGui import QImageReader, QPainter, QPainterPath, QPixmap
 from PyQt6.QtWidgets import QScrollArea, QSizePolicy, QWidget
@@ -11,6 +12,22 @@ from ..charts import Stage, StackedBar, ZoomView
 from ..theme import T, font, qc
 from ..widgets import (Box, Button, Combo, Dot, HLine, Label, Scroll, Segmented, badge, card, col, elided, empty_state, hbox,
                        kv_row, scrollbar_css, stat_tile, vbox, wrap)
+
+
+class _Slot(QWidget):
+    """Holds one widget and swaps it for another in place, so a new selection doesn't rebuild the window."""
+
+    def __init__(self, child):
+        super().__init__()
+        self.setLayout(vbox())
+        self.child = child
+        self.layout().addWidget(child, 1)
+
+    def swap(self, child):
+        old, self.child = self.child, child
+        self.layout().replaceWidget(old, child)
+        old.hide()
+        old.deleteLater()
 
 
 class StageArea(QWidget):
@@ -105,23 +122,50 @@ class Thumb(QWidget):
 GOOD, BAD, PLAIN = "#2ead4b", "#d03238", None  # PLAIN: neither matches nor contradicts the label
 
 
+def _task(app):
+    """The task shown: the one picked in the header, else a task project's first (None without tasks)."""
+    return app.s.task if app.s.task in store.TASKS else (store.TASKS[0] if store.TASKS else None)
+
+
+def _sources(app):
+    """{name: source} of the shown task's predictions (every source without tasks)."""
+    task = _task(app)
+    return {k: v for k, v in store.INFERENCE.items() if v.get("task") in (None, task)}
+
+
+def _source(app):
+    """(name, source) of the predictions shown: the one picked under Results, else the task's first."""
+    srcs = _sources(app)
+    name = app.s.infer_source if app.s.infer_source in srcs else next(iter(srcs), None)
+    return name, srcs.get(name)
+
+
+def _label(app, row):
+    """The row's ground truth for the shown task."""
+    task = _task(app)
+    return row["labels"].get(task) if task and "labels" in row else row["label"]
+
+
 def _result(app, row):
-    """The [labels] result-file record for ``row`` in the chosen source, or None (no [labels], or row not in it)."""
-    src = store.INFERENCE.get(app.s.infer_source)
+    """The prediction record for ``row`` in the shown source, or None (no source, or row not in it)."""
+    src = _source(app)[1]
     if not src:
         return None
     return src["by_path"].get(os.path.normpath(row["path"])) or src["by_name"].get(os.path.basename(row["path"]))
 
 
 def _label_and_prediction(app, row):
-    """(label, prediction rows as (key, value, tone)). The label is always the data row's ground truth; the
-    predictions come from the [labels] result file, or without one from the data's ``predict`` column. A value
-    equal to the label is green, another label value red."""
+    """(label, prediction rows as (key, value, tone)) for the shown task. The label is always the data row's ground
+    truth; the predictions come from the task's prediction source, or without any from the data's ``predict``
+    column. A value equal to the label is green, another label value red."""
     if store.INFERENCE:
+        name, src = _source(app)
+        if src is None:
+            return _label(app, row) or "n/a", [("", f"no predictions for {_task(app)}", PLAIN)]
         rec = _result(app, row)
         if rec is None:
-            return row["label"] or "n/a", [("", f"not in {store.INFERENCE[app.s.infer_source]['rel']}", PLAIN)]
-        label, classes = row["label"], set(store.CLASSES)
+            return _label(app, row) or "n/a", [("", f"not in {src['rel']}", PLAIN)]
+        label, classes = _label(app, row), set(store.CLASSES)
         chips = []
         for key, v in rec["values"].items():
             tone = PLAIN if v in (None, "") else GOOD if str(v) == str(label) else BAD if v in classes else PLAIN
@@ -168,9 +212,14 @@ def _viewer(app, fd, files, di, sel):
                                                         margins=(10, 4, 10, 4), align=Qt.AlignmentFlag.AlignVCenter))
     modes = Segmented([("raw", "Raw"), ("inference", "Predict"), ("both", "Both")], mode,
                       lambda k: app.set(view_mode=k), size=13, pad=(6, 16))
-    if len(store.INFERENCE) > 1:  # one result file per model: choose which one labels and inference come from
-        source = Combo([(k, k) for k in store.INFERENCE], s.infer_source, lambda k: app.set(infer_source=k))
+    srcs, task = _sources(app), _task(app)
+    if len(srcs) > 1:  # one result file per model: choose which one the predictions come from
+        shown = lambda k: k.removeprefix(f"{task} · ") if task else k  # the task is picked beside it
+        source = Combo([(k, shown(k)) for k in srcs], _source(app)[0], lambda k: app.set(infer_source=k))
         modes = hbox(Label("Results", 13, 400, "body"), 8, source, 12, modes, align=Qt.AlignmentFlag.AlignVCenter)
+    if len(store.TASKS) > 1:  # a multi-task project: whose labels and predictions are shown
+        pick = Combo([(t, t[:1].upper() + t[1:]) for t in store.TASKS], task, lambda k: app.set(task=k, infer_source=None))
+        modes = hbox(Label("Task", 13, 400, "body"), 8, pick, 12, modes, align=Qt.AlignmentFlag.AlignVCenter)
     head = hbox(elided(sel, 16, 600, lh=24), 10, split_pill, "stretch", 16, modes, margins=(20, 14, 20, 14), align=Qt.AlignmentFlag.AlignVCenter)
 
     names = [n for n, _ in files]
@@ -233,8 +282,12 @@ def _info_card(app, fd, di, sel):
     r = fd["rows"][di]
     ext = r["path"].rsplit(".", 1)[-1].upper() if "." in r["path"] else "—"
     label, _ = _label_and_prediction(app, r)
+    if len(store.TASKS) > 1:  # every task's ground truth
+        labels = [(f"Label · {t}", r["labels"].get(t) or "—") for t in store.TASKS]
+    else:
+        labels = [("Label", label)]
     rows = [("Path", r["path"]), ("Split", store.SPLITS[sp][0]), ("Dimensions", _dims(r["path"])), ("Format", ext),
-            ("Label", label), ("Size", f"{r['bytes'] / 1024:.0f} KB" if r["bytes"] else "missing"),
+            *labels, ("Size", f"{r['bytes'] / 1024:.0f} KB" if r["bytes"] else "missing"),
             ("Modified", datetime.fromtimestamp(r["mtime"]).strftime("%b %d, %H:%M") if r["mtime"] else "—")]
     if r["created"]:
         rows.append(("Created", r["created"].strftime("%b %d, %Y %H:%M")))
@@ -242,8 +295,9 @@ def _info_card(app, fd, di, sel):
         rows.append(("Trained", "yes" if r["trained"] else "no"))
     if r["id"] is not None:
         rows.append(("Row", f"{store.SPLIT_SOURCE[0]} · id {r['id']}"))
-    if store.INFERENCE:
-        src, rec = store.INFERENCE[app.s.infer_source], _result(app, r)
+    src = _source(app)[1]
+    if src:
+        rec = _result(app, r)
         for key, column in src["shows"].items():
             v = rec["values"].get(key) if rec else None
             rows.append((f"{key} · {column}", "—" if v in (None, "") else str(v)))
@@ -270,6 +324,23 @@ def build(app):
     sel = s.sel["data"] if s.sel["data"] in fd["files"] else fd["files"][0]
     di = fd["files"].index(sel)
     files = [(n, i) for i, n in enumerate(fd["files"]) if s.split_filter in ("all", store.split_of(s.folder, i))]
-    side = Scroll(wrap(vbox(_splits_card(app), _info_card(app, fd, di, sel), _folder_card(fd), "stretch", spacing=12)))
+    viewer, info = _Slot(_viewer(app, fd, files, di, sel)), _Slot(_info_card(app, fd, di, sel))
+    app.data_slots = (viewer, info)
+    side = Scroll(wrap(vbox(_splits_card(app), info, _folder_card(fd), "stretch", spacing=12)))
     side.setFixedWidth(340)
-    return _viewer(app, fd, files, di, sel), side
+    return viewer, side
+
+
+def select(app, name):
+    """Show file ``name`` of the open folder by swapping the viewer and File info in place (Previous / Next, a
+    thumbnail, the file list), not by rebuilding the window, which flickers. False when the page must be rebuilt."""
+    fd = store.DATA_FOLDERS.get(app.s.folder)
+    slots = getattr(app, "data_slots", None)
+    if not fd or name not in fd["files"] or not slots or any(sip.isdeleted(x) for x in slots):
+        return False
+    s, di = app.s, fd["files"].index(name)
+    files = [(n, i) for i, n in enumerate(fd["files"]) if s.split_filter in ("all", store.split_of(s.folder, i))]
+    viewer, info = slots
+    viewer.swap(_viewer(app, fd, files, di, name))
+    info.swap(_info_card(app, fd, di, name))
+    return True

@@ -7,7 +7,7 @@
 
 [English](../en/home.md) | **한국어**
 
-Home은 프로젝트를 한눈에 보는 페이지입니다. 가운데에는 Data, Model, Latest run, Result 네 개의 요약
+Home은 프로젝트를 한눈에 보는 페이지입니다. 가운데에는 Data, Model, Latest hyperparameter, Result 네 개의 요약
 카드가 있고, 오른쪽에는 프로젝트의 git 기록이 있습니다. 각 카드의 **Open** 링크를 누르면 해당 페이지로
 이동합니다.
 
@@ -23,7 +23,7 @@ Home은 프로젝트를 한눈에 보는 페이지입니다. 가운데에는 Dat
 | Remote | `origin` URL |
 | Branch | 현재 브랜치와 upstream 대비 상태 (예: `ahead 1`, `up to date with origin/main`). 예전 커밋을 볼 때는 `detached at <hash> · read-only snapshot` |
 | Commits | 커밋 수와 기여자 수 |
-| Runs linked | `paths.runs`에서 찾은 run 수 |
+| Hyperparameter sets | `[Path] Hyperparameter`에서 찾은 하이퍼파라미터 세트(학습 run) 수 |
 
 ### Root folders
 
@@ -54,9 +54,9 @@ Home은 프로젝트를 한눈에 보는 페이지입니다. 가운데에는 Dat
 | Format | 파일 형식(PyTorch, ONNX, safetensors 등)별 누적 막대와 범례. 형식마다 개수와 확장자 표시 |
 | 표 | 최근에 바뀐 순서로 최대 8개 모델: **Model · Formats · Files · Size** |
 
-### Latest run
+### Latest hyperparameter
 
-가장 최근에 수정된 run을 보여 줍니다.
+가장 최근에 수정된 하이퍼파라미터 세트(학습 run)를 보여 줍니다.
 
 - 설명 줄에 run 이름, 그 폴더를 마지막으로 건드린 커밋, 수정 시각, 읽은 설정 파일이 나옵니다.
 - 그 아래에 처음 12개 하이퍼파라미터가 두 열로 표시됩니다.

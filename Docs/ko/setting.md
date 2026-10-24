@@ -29,7 +29,7 @@ Setting 페이지에서 할 수 있는 일:
 | 파일이 없거나 형식이 잘못됨 | 상태 바에 오류가 표시되고, 이전 프로젝트가 그대로 유지됨 |
 | 로드 성공 | 모든 페이지가 다시 로드되고, 상태 바에 `Loaded <path>`와 메모가 표시됨 |
 
-메모의 예: *Nothing found in Path.Runs*, *[Data] Type is not set*, *DB … unavailable (…)*.
+메모의 예: *Nothing found in Path.Hyperparameter*, *[Data] Type is not set*, *DB … unavailable (…)*.
 메모별 해결 방법은 [Data 문서의 자주 보는 알림](data.md#자주-보는-알림)을 보세요.
 
 ## 프로젝트 파일
@@ -68,7 +68,7 @@ Setting 페이지에서 할 수 있는 일:
 | Database | *Connected* / *Unreachable* (오류 내용 포함) |
 | Data | *Found* (출처 · 파일 수 · 폴더 수 · 크기) / *Not found* |
 | Models | *Found* / *Not found* |
-| Runs | *Found* / *Not found* |
+| Hyperparameter | *Found* (폴더 · 세트 수) / *Not found* |
 | Results | *Found* / *Not found* |
 | TensorBoard | *Found*. 결과 폴더에 이벤트 파일이 있을 때 |
 | Weights & Biases | *Offline*. 결과 폴더에 `offline-run-*` 폴더가 있을 때 |
@@ -94,14 +94,15 @@ Setting 페이지에서 할 수 있는 일:
 - **빈 값:** 쓰지 않는 key는 `""`로 비워 둡니다. 비어 있는 key는 설정하지 않은 것으로 봅니다.
 - **True / False:** Laboard는 `True` / `False`를 씁니다. 표준 TOML의 `true` / `false`도 읽습니다.
 
-### 전체 예시 (분류 프로젝트)
+### 전체 예시
 
 ```toml
 [Project]
 Name = "Anomaly-Detection"
 Root = "/mnt/data/github/Anomaly-Detection/test_projects"
-Task = "classification"            # classification | object detection | segmentation
-DB = False                         # [Data] / [Prediction]에서 Type = "DB"를 쓰면 True
+Task = "classification"            # task 하나, 또는 쉼표로 여러 개: classification, object detection,
+                                   # segmentation, anomaly detection, pose-estimation
+DB = False                         # [Data] / [Label] / [Prediction]에서 Type = "DB"를 쓰면 True
 
 [DB]                               # DB = True일 때만 사용 (Setting에서도 그때만 보임)
 DB = "supabase"
@@ -113,18 +114,23 @@ Branch = "main"
 
 [Path]
 Models = "/mnt/data/github/Anomaly-Detection/test_projects/Models"
-Runs = "/mnt/data/github/Anomaly-Detection/test_projects/Runs"
+Hyperparameter = "/mnt/data/github/Anomaly-Detection/test_projects/Runs"
 Results = "/mnt/data/github/Anomaly-Detection/test_projects/Results"
 
-[Data]
+[Data]                             # 원본 데이터: 모든 task가 같이 씀
 Type = "CSV"                       # CSV | DB | Folder
 File_path = "/mnt/data/github/Anomaly-Detection/test_projects/Data/semiconductor_AD_df.csv"
 Table = ""                         # Type = "DB"일 때만
-Label = "label"
+Raw = "file_path"                  # 원본 파일 경로 열 (CSV / DB)
 
-[Prediction]
+[Label]                            # 정답: task마다 <Task>_Label
 Type = "CSV"                       # CSV | DB | Folder
-Path = "inference.csv"
+File_path = "/mnt/data/github/Anomaly-Detection/test_projects/Data/semiconductor_AD_df.csv"
+Classification_Label = "label"
+
+[Prediction]                       # <Task>_<Key>로 task 하나만 다르게 설정 가능
+Type = "CSV"                       # CSV | DB | Folder
+File_path = "inference.csv"        # Path.Results/<task>/ 아래에서 찾음
 Table = ""                         # Type = "DB"일 때만
 Format = ""                        # Type = "Folder"일 때만: txt | json
 Predict = "classification"
@@ -139,8 +145,8 @@ Predict_score = "AD_score"
 | --- | --- |
 | `Name` | 상단 바와 Home에 표시할 프로젝트 이름. 비우면 Root 폴더 이름 |
 | `Root` | 프로젝트 git 저장소 폴더. git 기록·브랜치·원격 정보를 여기서 가져옴. 비우면 데이터·`[Path]` 경로 중 첫 번째, 없으면 toml이 있는 폴더 |
-| `Task` | `classification`이면 `[Data]` / `[Prediction]` 형식으로 읽음. `object detection` / `segmentation`은 [이전 형식](#이전-형식) 사용 |
-| `DB` | `[Data]`나 `[Prediction]`에서 `Type = "DB"`를 쓰면 `True`. `False`면 DB를 쓰지 않음 |
+| `Task` | task 하나, 또는 쉼표로 여러 개. `classification`, `object detection`, `segmentation`, `anomaly detection`, `pose-estimation` (대소문자·공백·`_`·`-` 무관). 비우면 [이전 형식](#이전-형식) |
+| `DB` | `[Data]`, `[Label]`, `[Prediction]`에서 `Type = "DB"`를 쓰면 `True`. `False`면 DB를 쓰지 않음 |
 
 **`[DB]`** (`[Project] DB = True`일 때)
 
@@ -164,20 +170,27 @@ Predict_score = "AD_score"
 | key | 넣을 값 |
 | --- | --- |
 | `Models` | 모델 체크포인트(.pt, .onnx, .safetensors 등) 폴더 → [Model](model.md) 페이지 |
-| `Runs` | 학습 실행마다 하위 폴더가 있고 그 안에 json / yaml / toml 설정이 있는 폴더 → [Run](run.md) 페이지 |
-| `Results` | 결과 파일(csv, 로그, 이미지, TensorBoard 이벤트 등) 폴더 → [Result](result.md) 페이지. `[Prediction] Type = "CSV"`도 여기서 찾음 |
+| `Hyperparameter` | 학습 실행마다 하위 폴더가 있고 그 안에 json / yaml / toml 설정이 있는 폴더 → [Hyperparameter](run.md) 페이지. |
+| `Results` | 결과 파일(csv, 로그, 이미지, TensorBoard 이벤트 등) 폴더 → [Result](result.md) 페이지. `[Prediction] Type = "CSV"`도 여기서(`Results/<task>/`) 찾음 |
 
-**`[Data]` / `[Prediction]`** Type에 따라 쓰는 key가 다릅니다. Type별 상세 설명과 필요한 열은
-[Data 페이지 문서의 데이터 설정](data.md#데이터-설정)과 [예측 설정](data.md#예측-설정-prediction)을 보세요.
+세 폴더 모두 task 이름 폴더로 나눌 수 있습니다(예: `Models/classification/<모델>/`).
+
+**`[Data]` / `[Label]` / `[Prediction]`** Type에 따라 쓰는 key가 다릅니다. Type별 상세 설명과 필요한 열은
+[Data 페이지 문서의 데이터 설정](data.md#데이터-설정), [라벨 설정](data.md#라벨-설정-label),
+[예측 설정](data.md#예측-설정-prediction)을 보세요.
 
 | key | 넣을 값 |
 | --- | --- |
 | `[Data] Type` | `DB` / `CSV` / `Folder` |
 | `[Data] File_path` | CSV: 파일 목록 csv 경로 · Folder: `split/label/파일` 구조의 데이터셋 폴더 |
 | `[Data] Table` | DB: 파일 하나당 한 행인 테이블 |
-| `[Data] Label` | DB / CSV: 정답 열 이름. 비우면 `label` |
+| `[Data] Raw` | DB / CSV: 원본 파일 경로가 든 열 이름(예: `file_path`). 비우면 자동으로 찾음 |
+| `[Label] Type` | `CSV` / `DB` / `Folder` |
+| `[Label] File_path` | CSV: 라벨 csv(비우면 `[Data]` csv) · Folder: 라벨 폴더들이 있는 폴더 |
+| `[Label] Table` | DB: 라벨 테이블(비우면 `[Data]` 테이블) |
+| `[Label] <Task>_Label` | task별 정답. CSV / DB: 열 이름 · Folder: classification은 클래스 폴더, 다른 task는 라벨 파일 폴더 |
 | `[Prediction] Type` | `CSV` / `DB` / `Folder` |
-| `[Prediction] Path` | CSV: `[Path] Results` 아래의 결과 파일 이름 / glob · Folder: 예측 파일 폴더 |
+| `[Prediction] File_path` | CSV: `[Path] Results/<task>` 아래의 결과 파일 이름 / glob · Folder: 예측 파일 폴더 |
 | `[Prediction] Table` | DB: 예측이 들어 있는 테이블 |
 | `[Prediction] Format` | Folder: `txt`(`<클래스> [점수]`) / `json` |
 | `[Prediction] Predict` | 예측 클래스 열(json이면 key) |
@@ -189,17 +202,18 @@ Predict_score = "AD_score"
 | --- | --- |
 | `[Project]`, `[Git]` | 상단 바, Home, git log 팝업 |
 | `[Data]`, `[DB]` | [Data](data.md), Home의 Data 카드 |
+| `[Label]` | [Data](data.md) 페이지의 정답 표시, 클래스 목록 |
 | `[Prediction]` | [Data](data.md) 페이지의 예측 표시 |
 | `[Path] Models` | [Model](model.md), Home의 Model 카드 |
-| `[Path] Runs` | [Run](run.md), Home의 Latest run 카드 |
+| `[Path] Hyperparameter` | [Hyperparameter](run.md), Home의 Latest hyperparameter 카드 |
 | `[Path] Results` | [Result](result.md), Home의 Result 카드 |
 
 찾지 못한 부분은 비어 있고, 어느 부분이 그런지는 Detected 카드와 상태 바에서 확인할 수 있습니다.
 
 ### 이전 형식
 
-`Task`가 비어 있거나 `classification`이 아니면 이전 형식으로 읽습니다. 데이터 위치는 `[Path] Data`로,
-예측은 `[Labels]`로 정합니다. 자세한 읽기 순서는 [Data 문서의 이전 형식](data.md#이전-형식-task가-classification이-아닐-때)을
+`Task`가 비어 있으면 이전 형식으로 읽습니다. 데이터 위치는 `[Path] Data`로,
+예측은 `[Labels]`로 정합니다. 자세한 읽기 순서는 [Data 문서의 이전 형식](data.md#이전-형식-task가-비어-있을-때)을
 보세요.
 
 ```toml

@@ -1,32 +1,32 @@
 <p align="center">
-  <img src="../assets/LABOARD_RUN.png" alt="Run" width="900"/>
+  <img src="../assets/LABOARD_RUN.png" alt="Hyperparameter" width="900"/>
 </p>
 
-# Run
+# Hyperparameter
 
 **English** | [한국어](../ko/run.md)
 
-The Run page shows one training run:
+The Hyperparameter page shows one training run's hyperparameter set:
 
 - where it lives and which commit last touched it
 - how far training has got
 - every hyperparameter in its config files, with the file each value came from
 - the state of the GPU
 
-## What counts as a run
+## What counts as a hyperparameter set
 
-- **A run** is any folder under `paths.runs`, up to 3 levels deep, that holds config files
+- **A set (a training run)** is any folder under `[Path] Hyperparameter`, up to 3 levels deep, that holds config files
   (`.json`, `.yaml`, `.yml`, `.toml`, each under 2 MB).
 - **Nesting:** runs don't nest. Once a folder counts as a run, the folders inside it are not separate runs.
 - **Limit:** up to 500 runs are read.
 - **YAML:** configs are read only if PyYAML is installed; otherwise they are skipped.
 - **Order:** the most recently modified run comes first.
-- **Name:** a run's name is its path relative to `paths.runs`. If `paths.runs` is itself a run, its name
+- **Name:** a set's name is its path relative to `[Path] Hyperparameter`. If `[Path] Hyperparameter` is itself a run, its name
   comes from `exp_name`, `run_name` or `name` in its config, otherwise the folder name.
 
 ## Left sidebar
 
-**Runs** is a folder tree. Next to each run is:
+**Hyperparameter** is a folder tree (*N sets*). Next to each set is:
 
 - its best metric as a percentage, when `trainer_state.json` has a `best_metric` between 0 and 1
 - otherwise, the date it was last modified
@@ -56,19 +56,23 @@ The config here means files whose names contain `config`, `args` or `hparams`.
 ### Header
 
 - **Read from source at launch** lists the config files that were read: the first four, then `+N more`.
-- **Show source / Values only** shows or hides the column that names each value's file.
 - **Re-read** loads the project file again. Use it to pick up changes to configs or to the GPU state.
 
 ### Sections
 
-There is one card per config file (`trainer_state.json` is only used for progress). The cards sit in
-two columns, or one when the page is narrow.
+There is one card per config file (`trainer_state.json` is only used for progress). The cards sit one
+per row, as wide as the column.
 
+- **Open / close:** click a card's header (▸ title · row count · file name) to open its table, and again to close
+  it. Every card starts closed and stays as you left it until you leave the Hyperparameter page; opening and
+  closing keep the page's scroll position.
 - **Title:** the file name in sentence case. For example, `training_args.json` becomes *Training args*.
 - **Keys:** nested keys are flattened with dots, such as `optimizer.lr`.
 - **Long values:** lists longer than 8 items are shown as `[N items]`, and values longer than 90
   characters are cut with `…`.
-- **Row limit:** each card shows up to 40 rows.
+- **Pages:** a card with more than 20 rows shows them 20 at a time. **Rows 1–20 of N** and **Previous / Next**
+  sit under the table; turning a page keeps the page's scroll position, and each card keeps its page until you
+  leave the Hyperparameter page. Up to 2,000 rows are read from one file.
 
 ## GPU
 

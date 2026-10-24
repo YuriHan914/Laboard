@@ -1,4 +1,4 @@
-"""Home: Data / Model / Latest run / Result summary cards, plus the git history."""
+"""Home: Data / Model / Latest hyperparameter / Result summary cards, plus the git history."""
 from PyQt6.QtCore import QRectF, Qt
 from PyQt6.QtGui import QPainter, QPen
 from PyQt6.QtWidgets import QSizePolicy, QWidget
@@ -97,14 +97,14 @@ def _model_card(app):
 
 def _run_card(app):
     if not store.RUNS:
-        return _missing(app, "Latest run", "run", "No runs found in paths.runs.")
+        return _missing(app, "Latest hyperparameter", "run", "No hyperparameter sets found in Path.Hyperparameter.")
     run_name, commit, rest = D["run_note"]
     note = Label(f"{run_name} · commit {mono_span(commit)} · {rest}", 13, 400, "body", rich=True, wrap=True)
     g = Flow(spacing=24, per_row=2, vspacing=0)  # one column when the card is narrow
     for k, v in D["hp"]:
         g.add(vbox(hbox(Label(k, 13, 400, "body"), 12, (Label(v, 13, 400, mono=True, align=Qt.AlignmentFlag.AlignRight, elide=True), 1),
                         margins=(0, 7, 0, 7)), HLine()), 220)
-    return _summary_card(vbox(_head("Latest run", lambda: app.set(tab="run")), 8, note), g)
+    return _summary_card(vbox(_head("Latest hyperparameter", lambda: app.set(tab="run")), 8, note), g)
 
 
 def _result_card(app):

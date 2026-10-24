@@ -108,7 +108,8 @@ def _edit(app, sec, key, orig, cfg, toml):
     field = _input(app, sec, key, orig, cfg, toml, draft)
     error = Label("", 12, 400, "#d03238", wrap=True)
     error.hide()
-    where = f"[{tomledit.title(sec)}] {tomledit.title(key)}" if sec else tomledit.title(key)
+    shown = tomledit.title(key)
+    where = f"[{tomledit.title(sec)}] {shown}" if sec else shown
     pick = " Type it, or pick one with the folder icon." if not isinstance(field, Combo) and _is_path(sec, key, orig) else ""
     dialog = None
 
@@ -116,7 +117,7 @@ def _edit(app, sec, key, orig, cfg, toml):
         if _save(app, sec, key, orig, toml, draft["value"], error):
             dialog.close()
 
-    dialog = app.show_dialog(f"Edit {tomledit.title(key)}", f"{where} · {tomledit.describe(sec, key)}{pick}", vbox(field, 8, error),
+    dialog = app.show_dialog(f"Edit {shown}", f"{where} · {tomledit.describe(sec, key)}{pick}", vbox(field, 8, error),
                              [("Cancel", "secondary", None), ("Save", "primary", save)])
     if isinstance(field, LineEdit):
         field.returnPressed.connect(save)
@@ -139,10 +140,14 @@ def _save_as(app, toml):
 
 
 def _hidden(sec, key, cfg):
-    """Rows that don't apply to what the file chose: Table unless Type = DB, [Prediction] Format unless Type = Folder."""
+    """Rows that don't apply to what the file chose: Table only for Type = DB, File_path not for DB, [Data] Raw not
+    for Folder, [Prediction] Format only for Folder."""
     s, k = tomledit.canon(sec), key.lower()
+    if s not in ("data", "label", "prediction"):
+        return False
     kind = str(cfg.get(s, {}).get("type") or "").lower()
-    return (k == "table" and s in ("data", "prediction") and kind != "db") or (s == "prediction" and k == "format" and kind != "folder")
+    return (k == "table" and kind != "db") or (k == "file_path" and kind == "db") or \
+        (s == "data" and k == "raw" and kind == "folder") or (s == "prediction" and k == "format" and kind != "folder")
 
 
 def _fields(app, toml):
@@ -162,12 +167,13 @@ def _fields(app, toml):
         for key, orig in items:
             if _hidden(sec, key, cfg):
                 continue
-            name = Label(tomledit.title(key), 13.5, 400, "body", mono=True)
+            shown = tomledit.title(key)
+            name = Label(shown, 13.5, 400, "body", mono=True)
             name.setFixedWidth(150)
             value = Label(breakable(_show(orig)), 13.5, 400, "mute" if orig is None else "ink", mono=True, wrap=True)
             value.setMinimumHeight(ROW_H)
             for w in (name, value):
-                set_tip(w, tomledit.title(f"{sec}.{key}" if sec else key), tomledit.describe(sec, key))
+                set_tip(w, f"{tomledit.title(sec)}.{shown}" if sec else shown, tomledit.describe(sec, key))
             edit = Button("Edit", on_click=lambda _checked=False, s=sec, k=key, o=orig: _edit(app, s, k, o, cfg, toml))
             body.addLayout(hbox(name, 12, (value, 1), 12, edit, margins=(0, 6, 0, 6), align=Qt.AlignmentFlag.AlignVCenter))
             body.addWidget(HLine())

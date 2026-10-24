@@ -1,18 +1,22 @@
 """Result: charts from csv / jsonl / TensorBoard files, text and json, images."""
 from pathlib import Path
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFontMetrics, QImageReader
-from PyQt6.QtWidgets import QSlider
+from PyQt6 import sip
+from PyQt6.QtCore import QEvent, QMimeData, QObject, QPoint, QRectF, Qt, QTimer
+from PyQt6.QtGui import QDrag, QFontMetrics, QImageReader, QPainter, QPixmap
+from PyQt6.QtWidgets import QApplication, QGraphicsOpacityEffect, QSlider
 
 from .. import readers, store
 from ..charts import LineChart, Stage, Swatch, series_style
-from ..theme import WARNING, T, font
-from ..widgets import (Box, Button, Check, Chevron, EdgeResize, Flow, HLine, HScroll, Label, Pill, Scroll, card, clear_layout, elided,
+from ..theme import NEGATIVE_DARKEST, POSITIVE, POSITIVE_DEEP, WARNING, WARNING_CONTENT, WARNING_DEEP, T, font
+from ..widgets import (Box, Button, Check, Chevron, Dot, EdgeResize, Flow, HLine, HScroll, Label, Pill, Scroll, card, clear_layout, elided,
                        empty_state, grid, hbox, vbox, wrap)
 
-MAX_COMPARE = 10  # charts that can be ticked at once (one colour slot each)
-MAX_CHARTS = 16  # numeric series charted per file
+COMPARE_SIZE = 10  # ticked charts per Compare plot (one colour slot each); more open the next plot
+# selection border (and Compare dot) per Compare plot: the first keeps positive-deep, later ones the semantic colours
+GROUP_COLORS = (POSITIVE_DEEP, POSITIVE, WARNING, WARNING_DEEP, WARNING_CONTENT, NEGATIVE_DARKEST)
+MAX_COMPARE = COMPARE_SIZE * len(GROUP_COLORS)  # charts that can be ticked at once
+MAX_CHARTS = 60  # numeric series charted per file (as many as can be ticked: MAX_COMPARE)
 PLOT_H = (80, 1000)  # px a chart's plot can be dragged between
 
 
@@ -153,6 +157,64 @@ class RecordTable(Box):
         self.scroll.updateGeometry()
 
 
+CHART_MIME = "application/x-laboard-chart"  # a dragged chart card: its tag
+
+
+class _CardDrag(QObject):
+    """Drags a chart card onto a Compare card (``ResultPage.merge``). A press that moves past the drag distance
+    starts it, unless the chart is zoomed (then dragging pans it); the card's edges stay EdgeResize's."""
+
+    def __init__(self, page, box, tag, chart):
+        super().__init__(box)
+        self.page, self.box, self.tag, self.chart = page, box, tag, chart
+        self.start, self.dragged = None, False
+        box.installEventFilter(self)  # before EdgeResize's, so a press on an edge never reaches here
+
+    def eventFilter(self, obj, e):
+        t = e.type()
+        if t == QEvent.Type.MouseButtonPress and e.button() == Qt.MouseButton.LeftButton:
+            self.start = e.globalPosition().toPoint()
+        elif t == QEvent.Type.MouseMove and self.start is not None and e.buttons() & Qt.MouseButton.LeftButton:
+            if self.chart.view != (0.0, 1.0):  # zoomed: the drag pans the chart
+                self.start = None
+            elif (e.globalPosition().toPoint() - self.start).manhattanLength() >= QApplication.startDragDistance():
+                hot, self.start, self.dragged = self.box.mapFromGlobal(self.start), None, True
+                self.chart.pan = None
+                self.page.drag_card(self.box, self.tag, hot)
+                return True
+        elif t == QEvent.Type.MouseButtonRelease:
+            self.start = None
+            if self.dragged:  # the end of a drag is not a click (it would tick the card)
+                self.dragged = False
+                return True
+        return False
+
+
+class _CompareDrop(QObject):
+    """Makes a Compare card take dropped chart cards: its border lights up in its colour while one is over it."""
+
+    def __init__(self, page, panel, group):
+        super().__init__(panel)
+        self.page, self.panel, self.group = page, panel, group
+        panel.setAcceptDrops(True)
+        panel.installEventFilter(self)
+
+    def eventFilter(self, obj, e):
+        t = e.type()
+        if t in (QEvent.Type.DragEnter, QEvent.Type.DragMove) and e.mimeData().hasFormat(CHART_MIME):
+            self.panel.restyle(border=f"2px solid {GROUP_COLORS[self.group]}")
+            e.acceptProposedAction()
+            return True
+        if t in (QEvent.Type.DragLeave, QEvent.Type.Drop):
+            self.panel.restyle(border="2px solid transparent")
+            if t == QEvent.Type.Drop and e.mimeData().hasFormat(CHART_MIME):
+                e.acceptProposedAction()
+                tag = bytes(e.mimeData().data(CHART_MIME)).decode()
+                QTimer.singleShot(0, lambda: self.page.merge(tag, self.group))  # after the drag has finished
+            return True
+        return False
+
+
 class ResultPage(Scroll):
     """The centre: one result file. ``side`` is the right panel that overlays the ticked charts; it opens only
     while at least one is ticked (``right_on``)."""
@@ -164,7 +226,8 @@ class ResultPage(Scroll):
         self.file = str(store.RESULT_PATHS[sel])
         self.charts = []  # [(chart, lo, hi, xs, ys)]
         self.series = {}  # tag -> (xs, ys, x name) as charted, for the comparison
-        self.cmp_chart = None  # built after the charts (_compare_panel)
+        self.cmp = None  # the Compare cards, built after the charts (_compare_panel)
+        self.cards = {}  # tag -> (chart card, its check)
         self.chart_h = 0  # a chart card's height at the default plot height (0: no charts)
         super().__init__(wrap(self._file(sel, store.RESULT_PATHS[sel])))
         self.side = self._compare_panel()
@@ -181,8 +244,24 @@ class ResultPage(Scroll):
         self.smooth_label = Label(f"{self.app.s.smooth:.2f}", 13, mono=True)
         self.smooth_label.setFixedWidth(36)
         slider.valueChanged.connect(self.on_smooth)
-        head.add(hbox(Label("Smoothing", 13, 400, "body"), 10, slider, 10, self.smooth_label, align=Qt.AlignmentFlag.AlignVCenter),
-                 stretch=0)
+        smoothing = hbox(Label("Smoothing", 13, 400, "body"), 10, slider, 10, self.smooth_label, align=Qt.AlignmentFlag.AlignVCenter)
+        reset = Button("Reset", on_click=self.untick_all)  # under the slider: clears every tick of this file
+        head.add(vbox(smoothing, 8, hbox("stretch", reset)), stretch=0)
+
+    def untick_all(self):
+        """Untick every chart of this file in place: borders, checks and the Compare plots clear, the panel closes."""
+        picked = self.app.s.chart_sel
+        gone = [k for k in picked if k[0] == self.file]
+        if not gone:
+            return self.app.status("No charts are ticked")
+        for k in gone:
+            del picked[k]
+        for box, check in self.cards.values():
+            box.restyle(border=self.UNSELECTED)
+            check.set_checked(False)
+        self._refresh_compare()
+        self.app.show_right(False)
+        self.app.status(f"Unticked {len(gone)} chart{'s' if len(gone) != 1 else ''}")
 
     def _file(self, sel, path):
         """Charts + table, text, or image for one result file."""
@@ -268,12 +347,16 @@ class ResultPage(Scroll):
         log.addStretch(1)
         return Box(bg="stage", radius=16, border=f"1px solid {T.line}", layout=log)
 
-    SELECTED = f"3px solid #054d28" #{WARNING}
-    UNSELECTED = "3px solid transparent"  # same width, so selecting doesn't shift the chart
+    UNSELECTED = "3px solid transparent"  # same width as a selection border, so selecting doesn't shift the chart
+
+    def _border(self, key):
+        """A ticked chart's border in its Compare plot's colour (GROUP_COLORS), else none."""
+        slot = self.app.s.chart_sel.get(key)
+        return self.UNSELECTED if slot is None else f"3px solid {GROUP_COLORS[slot // COMPARE_SIZE]}"
 
     def _chart_card(self, file, tag, summary, chart):
         """A chart card that is selected by clicking anywhere on it: a check in its top-right corner and a thick
-        warning-coloured border. Selections are kept per file across re-renders."""
+        border in its Compare plot's colour (GROUP_COLORS). Selections are kept per file across re-renders."""
         key = (file, tag)
         on = key in self.app.s.chart_sel
         check = Check(on)
@@ -281,7 +364,7 @@ class ResultPage(Scroll):
                     align=Qt.AlignmentFlag.AlignBottom)
         head.setAlignment(check, Qt.AlignmentFlag.AlignTop)
         box = card(head, 12, chart, pad=(22, 18, 22, 18))
-        box.restyle(border=self.SELECTED if on else self.UNSELECTED)
+        box.restyle(border=self._border(key))
         box.setCursor(Qt.CursorShape.PointingHandCursor)
 
         def toggle():
@@ -294,11 +377,13 @@ class ResultPage(Scroll):
                     return self.app.status(f"Up to {MAX_COMPARE} charts can be compared; untick one first")
                 picked[key] = min(set(range(MAX_COMPARE)) - taken)  # its colour stays while others come and go
             on = key in picked
-            box.restyle(border=self.SELECTED if on else self.UNSELECTED)
+            box.restyle(border=self._border(key))
             check.set_checked(on)
             self._refresh_compare()
             self.app.show_right(bool(self._picked()))
         box.clicked.connect(toggle)
+        self.cards[tag] = (box, check)
+        _CardDrag(self, box, tag, chart)
         self._resizable(box, chart, key, "lrb", corners=("lt",))
         return box
 
@@ -328,45 +413,112 @@ class ResultPage(Scroll):
         return sorted(((t, slot) for (f, t), slot in self.app.s.chart_sel.items() if f == self.file and t in self.series),
                       key=lambda ts: ts[1])
 
+    def drag_card(self, box, tag, hot):
+        """Drag ``box`` (grabbed at ``hot``): a see-through, smaller image of it follows the cursor and the card
+        itself fades until it's dropped."""
+        image = box.grab()
+        scale = min(1.0, 360 / max(1, box.width()))
+        ghost = QPixmap(image.size() * scale)
+        ghost.setDevicePixelRatio(image.devicePixelRatio())
+        ghost.fill(Qt.GlobalColor.transparent)
+        p = QPainter(ghost)
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        p.setOpacity(0.6)
+        p.drawPixmap(QRectF(0, 0, box.width() * scale, box.height() * scale), image, QRectF(image.rect()))
+        p.end()
+        mime = QMimeData()
+        mime.setData(CHART_MIME, tag.encode())
+        drag = QDrag(box)
+        drag.setMimeData(mime)
+        drag.setPixmap(ghost)
+        drag.setHotSpot(QPoint(round(hot.x() * scale), round(hot.y() * scale)))
+        box.setGraphicsEffect(QGraphicsOpacityEffect(opacity=0.35))
+        try:
+            drag.exec(Qt.DropAction.MoveAction)
+        finally:
+            if not sip.isdeleted(box):
+                box.setGraphicsEffect(None)
+
+    def merge(self, tag, group):
+        """Put chart ``tag`` into Compare plot ``group`` (dropped on it): ticked into a free slot of that plot, or
+        moved there from the plot it was in."""
+        key, picked = (self.file, tag), self.app.s.chart_sel
+        name = "Compare" if group == 0 else f"Compare {group + 1}"
+        cur = picked.get(key)
+        if cur is not None and cur // COMPARE_SIZE == group:
+            return self.app.status(f"{tag} is already in {name}")
+        taken = {slot for (f, _), slot in picked.items() if f == self.file}
+        free = sorted(set(range(group * COMPARE_SIZE, (group + 1) * COMPARE_SIZE)) - taken)
+        if not free:
+            return self.app.status(f"{name} already holds {COMPARE_SIZE} charts; untick one there first")
+        picked[key] = free[0]
+        if tag in self.cards:
+            box, check = self.cards[tag]
+            box.restyle(border=self._border(key))
+            check.set_checked(True)
+        self._refresh_compare()
+        self.app.show_right(True)
+        self.app.status(f"{tag} merged into {name}")
+
     def _compare_panel(self):
-        self.cmp_chart = LineChart((), (), plot_h=260)
-        self.cmp_count = Label("", 12, 400, "mute")
-        self.cmp_legend = vbox(spacing=8)
-        panel = card(hbox(Label("Compare", 16, 600, lh=24), "stretch", self.cmp_count, align=Qt.AlignmentFlag.AlignVCenter), 2,
-                     Label("Ticked charts on one shared axis", 12, 400, "body", wrap=True), 14, self.cmp_chart, 16,
-                     self.cmp_legend, pad=(22, 18, 22, 18))
-        self._resizable(panel, self.cmp_chart, "compare", "b")  # its width is the panel's (the gutter line)
-        side = Scroll(wrap(vbox(panel, "stretch")))
+        """The right panel: one Compare card per group of COMPARE_SIZE ticked charts (``_refresh_compare``)."""
+        self.cmp, self.cmp_list = {}, vbox(spacing=12)  # group -> dict(card, chart, count, legend)
+        side = Scroll(wrap(vbox(self.cmp_list, "stretch")))
         side.setFixedWidth(480)  # its width when it opens; then the user's (SideHandle)
         self._refresh_compare()
         return side
 
+    def _compare_card(self, group):
+        chart, count, legend = LineChart((), (), plot_h=260), Label("", 12, 400, "mute"), vbox(spacing=8)
+        name = "Compare" if group == 0 else f"Compare {group + 1}"
+        about = "Ticked charts on one shared axis" if group == 0 else \
+            f"Ticked charts {group * COMPARE_SIZE + 1}–{(group + 1) * COMPARE_SIZE} on one shared axis"
+        panel = card(hbox(Dot(GROUP_COLORS[group], 10), 8, Label(name, 16, 600, lh=24), "stretch", count,
+                          align=Qt.AlignmentFlag.AlignVCenter), 2,
+                     Label(about, 12, 400, "body", wrap=True), 14, chart, 16, legend, pad=(22, 18, 22, 18))
+        self._resizable(panel, chart, ("compare", group), "b")  # its width is the panel's (the gutter line)
+        panel.restyle(border="2px solid transparent")  # lit up while a chart card is dragged over it
+        _CompareDrop(self, panel, group)
+        return dict(card=panel, chart=chart, count=count, legend=legend)
+
     def _refresh_compare(self):
-        """Redraw the comparison: every ticked series in its slot colour on one y axis (their joint min..max) and
-        one x axis (their joint range), with the current smoothing, plus a legend naming each colour."""
-        picked = self._picked()
-        self.cmp_count.setText(f"{len(picked)} of {MAX_COMPARE}")
-        clear_layout(self.cmp_legend)
-        if not picked:
-            self.cmp_chart.set_hover([])
-            return self.cmp_chart.set_series([])
+        """Redraw the comparisons: each group's ticked series in their slot colours on one y axis (their joint
+        min..max) and one x axis (their joint range), with the current smoothing, plus a legend naming each colour.
+        A Compare card exists for every group with something ticked, in group order."""
+        groups = {}
+        for t, slot in self._picked():
+            groups.setdefault(slot // COMPARE_SIZE, []).append((t, slot % COMPARE_SIZE))
+        for g in [g for g in self.cmp if g not in groups]:
+            gone = self.cmp.pop(g)["card"]
+            self.cmp_list.removeWidget(gone)
+            gone.hide()
+            gone.deleteLater()
+        for g in sorted(groups):
+            if g not in self.cmp:
+                self.cmp[g] = self._compare_card(g)
+                self.cmp_list.insertWidget(sorted(self.cmp).index(g), self.cmp[g]["card"])
+            self._draw_compare(self.cmp[g], groups[g])
+
+    def _draw_compare(self, c, picked):
+        c["count"].setText(f"{len(picked)} of {COMPARE_SIZE}")
+        clear_layout(c["legend"])
         data = [(t, slot, *self.series[t]) for t, slot in picked]
         lo, hi = min(min(ys) for *_, ys, _ in data), max(max(ys) for *_, ys, _ in data)
         x0, x1 = min(xs[0] for _, _, xs, _, _ in data), max(xs[-1] for _, _, xs, _, _ in data)
         span, xspan = (hi - lo) or 1, (x1 - x0) or 1
-        self.cmp_chart.set_y_range(lo, hi, _fmt)
+        c["chart"].set_y_range(lo, hi, _fmt)
         rows = []
         for tag, slot, xs, ys, _ in data:
             sm = _ema(ys, self.app.s.smooth)
             color, dashed = series_style(slot)
             rows.append(dict(name=tag, color=color, dashed=dashed, x01=[(x - x0) / xspan for x in xs],
                              y01=[(y - lo) / span for y in sm], xs=xs, ys=ys, smooth=sm if self.app.s.smooth else None))
-        self.cmp_chart.set_series([(r["y01"], r["color"], 2, r["x01"], r["dashed"]) for r in rows])
-        self.cmp_chart.set_hover(rows)
-        self.cmp_chart.set_axis(lambda f: x0 + f * xspan, data[0][4])
+        c["chart"].set_series([(r["y01"], r["color"], 2, r["x01"], r["dashed"]) for r in rows])
+        c["chart"].set_hover(rows)
+        c["chart"].set_axis(lambda f: x0 + f * xspan, data[0][4])
         for tag, slot, xs, ys, _ in data:
-            self.cmp_legend.addLayout(hbox(Swatch(*series_style(slot)), 10, elided(tag, 13, 600, mono=True), "stretch", 12,
-                                           Label(f"last {_fmt(ys[-1])}", 12, 400, "body"), align=Qt.AlignmentFlag.AlignVCenter))
+            c["legend"].addLayout(hbox(Swatch(*series_style(slot)), 10, elided(tag, 13, 600, mono=True), "stretch", 12,
+                                       Label(f"last {_fmt(ys[-1])}", 12, 400, "body"), align=Qt.AlignmentFlag.AlignVCenter))
 
     def on_smooth(self, v):
         self.app.s.smooth = v * 0.05
@@ -379,7 +531,7 @@ class ResultPage(Scroll):
             n = (len(ys) - 1) or 1
             ch.set_hover([dict(name="", color="ink", dashed=False, x01=[i / n for i in range(len(ys))], y01=y01, xs=xs, ys=ys,
                                smooth=sm if self.app.s.smooth else None)])
-        if self.cmp_chart is not None:
+        if self.cmp is not None:
             self._refresh_compare()
 
 

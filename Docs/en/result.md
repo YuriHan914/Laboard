@@ -36,6 +36,8 @@ otherwise the extension), the file name and its size.
   `12 columns · 3,000 rows`, `8 scalar tags` or `1024×768 PNG`.
 - **Smoothing** (0–0.95): an exponential moving average applied to every chart and to Compare. It only
   appears when the file has charts.
+- **Reset** (under Smoothing): unticks every chart of this file. The Compare plots empty and the right panel
+  closes.
 
 ## Charts
 
@@ -48,7 +50,7 @@ otherwise the extension), the file name and its size.
 **The x axis** is the first of these columns that exists: `step`, `global_step`, `_step`, `epoch`,
 `iteration`, `iter`. If none of them exists, the row number is used. TensorBoard charts use the step.
 
-**Layout:** up to 16 charts per file, three per row (fewer when the page is narrow). Long series are
+**Layout:** up to 60 charts per file, three per row (fewer when the page is narrow). Long series are
 thinned to about 400 points. Each card shows the series name and `last · min · max`.
 
 | Action | Effect |
@@ -64,13 +66,35 @@ A plain scroll scrolls the page.
 
 ## Compare (right panel)
 
-1. Click chart cards to tick them, up to 10 per file. A ticked card gets a green border and a check mark.
-2. The **Compare** panel opens on the right. It draws every ticked series on one shared x and y axis.
+1. Click chart cards to tick them. A ticked card gets a coloured border and a check mark.
+2. The **Compare** panel opens on the right. It draws the ticked series on one shared x and y axis.
+   - One Compare plot holds 10 charts. The 11th opens **Compare 2** below it, the 21st **Compare 3**, and so
+     on: up to 60 charts (6 plots) per file.
+   - Each plot has its own border colour for the cards ticked into it, and the dot next to its title matches.
+
+     | Plot | Charts | Border colour |
+     | --- | --- | --- |
+     | Compare | 1st–10th | Positive Deep `#054d28` |
+     | Compare 2 | 11th–20th | Positive `#2ead4b` |
+     | Compare 3 | 21st–30th | Warning `#ffd11a` |
+     | Compare 4 | 31st–40th | Warning Deep `#b86700` |
+     | Compare 5 | 41st–50th | Warning Content `#4a3b1c` |
+     | Compare 6 | 51st–60th | Negative Darkest `#a7000d` |
+
+   - Unticking a chart in an earlier plot frees its place, and the next chart you tick fills it first. A plot
+     with nothing left in it disappears.
 3. Each series has its own colour and dash pattern, and the legend lists them with their last value.
    A series keeps its colour while you tick and untick others.
-4. Smoothing applies here too.
-5. Drag the bottom edge of the panel to make the chart taller.
-6. The panel closes when nothing is ticked.
+4. **Drag and drop:** drag a chart card from the left onto a Compare card on the right to merge it into that plot.
+   - While dragging, a see-through image of the card follows the cursor and the card itself fades. A Compare card
+     you can drop on lights up its border in its colour.
+   - An unticked chart joins that plot; a chart in another Compare plot moves there. When the plot already holds
+     10 charts, the status bar says so and nothing changes.
+   - Dragging a card's edge still resizes it, and dragging inside a zoomed chart still pans it. Compare cards only
+     take drops while the panel is open, i.e. once something is ticked.
+5. Smoothing applies here too.
+6. Drag the bottom edge of the panel to make the chart taller.
+7. The panel closes when nothing is ticked.
 
 ## Tables
 

@@ -6,8 +6,9 @@ from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import QSizePolicy, QWidget
 
 from . import store
+from .theme import font
 from .widgets import (Box, Button, Chevron, Dot, FolderIcon, Label, LineEdit, Pill, Scroll, Segmented, card, clear_layout,
-                      hbox, vbox, wrap)
+                      col, hbox, vbox, wrap)
 
 
 def _open_folder(app, path):
@@ -48,7 +49,7 @@ def _items(app):
         return title, f"{len(files):,} file{'s' if len(files) != 1 else ''}", "Filter files", [
             dict(key=key, label=Path(key).name, ext=ext, meta=size, folder=folder) for key, ext, size, folder in files]
     if tab == "run":
-        return "Runs", f"{len(store.RUNS)} run{'s' if len(store.RUNS) != 1 else ''}", "Filter runs", [
+        return "Hyperparameter", f"{len(store.RUNS)} set{'s' if len(store.RUNS) != 1 else ''}", "Filter sets", [
             dict(key=n, label=Path(n).name, meta=m, folder=str(Path(n).parent) if "/" in n else "") for n, m in store.RUNS]
     return "Recent projects", "", "Filter projects", [dict(label=n, meta=m, ext="TOML") for n, m in store.RECENT_PROJECTS]
 
@@ -73,7 +74,8 @@ def _row(app, it):
         lay.addWidget(tag)
     weight = 600 if kind == "folder" or sel else 400
     color = "body" if kind == "folder" else "selfg" if sel else "ink"
-    lay.addWidget(Label(it["label"], 14, weight, color, elide=True), 1)
+    name = Label(it["label"], 14, weight, color, elide=True)
+    lay.addWidget(name, 1)
     if it.get("meta"):
         meta = Label(it["meta"], 12, 400, "mute", elide=kind == "root", align=Qt.AlignmentFlag.AlignRight)
         if kind == "root":  # folder paths can be long; keep room for the name
@@ -88,6 +90,8 @@ def _row(app, it):
     row = Box(bg="sel" if sel else None, radius=10, layout=lay, on_click=on_click,
               hover=None if sel or on_click is None else "surf2")
     row.setMinimumHeight(34)
+    row.key = key if kind == "file" else None  # for FileList.mark
+    row.name = name
     return row
 
 
@@ -96,7 +100,7 @@ def _project_card(app):
         return k, Label(v, 12 if mono else 13, 400, "ink", mono=mono, elide=True)
 
     grid_rows = [kv("Remote", store.PROJECT["remote"], True), kv("Branch", store.PROJECT["branch"]),
-                 kv("Commits", store.PROJECT["commits"]), kv("Runs linked", store.PROJECT["runs_linked"])]
+                 kv("Commits", store.PROJECT["commits"]), kv("Hyperparameter sets", store.PROJECT["runs_linked"])]
     rows = vbox(spacing=6, margins=(0, 12, 0, 0))
     for k, w in grid_rows:
         kl = Label(k, 13, 400, "body", lh=20)
@@ -189,8 +193,25 @@ class FileList(Box):
             lay.addLayout(hbox(seg, margins=(12, 0, 12, 8)))
         self.list = vbox(spacing=2, margins=(8, 4, 8, 12))
         inner = wrap(vbox(self.list, "stretch"))
-        lay.addWidget(Scroll(inner), 1)
+        self.scroll = Scroll(inner)
+        lay.addWidget(self.scroll, 1)
         self.populate("")
+
+    def mark(self, key):
+        """Show ``key``'s row as the selected one in place: no rebuild, so the list keeps its scroll position
+        (it only moves when the row is out of view). False when the row isn't among the rows built."""
+        rows = [w for w in (self.list.itemAt(i).widget() for i in range(self.list.count())) if getattr(w, "key", None)]
+        hit = next((r for r in rows if r.key == key), None)
+        if hit is None:
+            return False
+        for r in rows:
+            sel = r is hit
+            r.restyle(bg="sel" if sel else None, hover=None if sel else "surf2")
+            r.name.setFont(font(14, 600 if sel else 400))
+            r.name._color = "selfg" if sel else "ink"
+            r.name.setStyleSheet(f"color:{col(r.name._color)};background:transparent;")
+        self.scroll.ensureWidgetVisible(hit, 0, 40)
+        return True
 
     def populate(self, text):
         clear_layout(self.list)
@@ -223,7 +244,8 @@ def build(app):
         lay.addWidget(_project_card(app))
     if app.s.tab == "data" and store.DATA_FOLDERS:
         lay.addWidget(_folders_card(app))
-    lay.addWidget(FileList(app), 1)
+    app.file_list = FileList(app)
+    lay.addWidget(app.file_list, 1)
     side.setLayout(lay)
     side.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
     return side
