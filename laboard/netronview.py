@@ -8,6 +8,9 @@ import logging
 import os
 
 from PyQt6.QtCore import QCoreApplication, Qt, QUrl
+from PyQt6.QtGui import QColor
+
+from . import theme
 
 try:
     import netron
@@ -50,7 +53,35 @@ def _new_view(parent=None):
             + 'width: calc(min(calc(100% * 0.6), 42em) * {SIDEBAR_WIDTH}) !important; }}';
         document.head.appendChild(s); }})();""")
     v.page().scripts().insert(script)
+    v.loadFinished.connect(lambda ok: _apply_theme(v))
     return v
+
+
+def _apply_theme(v):
+    """Follow the app's theme: netron's own dark styles (its prefers-color-scheme: dark rules, switched on or off
+    whatever the system prefers) with the graph on the app's stage colour. Runs after every load and render, so a
+    theme picked in Setting shows the next time the Model tab is open."""
+    dark = theme.current == "dark"
+    v.page().setBackgroundColor(QColor(theme.T.stage))  # before the page paints: no white flash
+    v.page().runJavaScript(f"""(dark => {{
+        const seen = window.laboardDark = window.laboardDark || new Set();
+        for (const sheet of document.styleSheets) {{
+            let rules;
+            try {{ rules = sheet.cssRules; }} catch (e) {{ continue; }}
+            for (const r of rules)
+                if (r.media && (seen.has(r) || r.media.mediaText.includes('prefers-color-scheme: dark'))) {{
+                    seen.add(r);
+                    r.media.mediaText = dark ? 'all' : 'not all';
+                }}
+        }}
+        let s = document.getElementById('laboard-stage');
+        if (!s && document.head) {{
+            s = document.createElement('style');
+            s.id = 'laboard-stage';
+            document.head.appendChild(s);
+        }}
+        if (s) s.textContent = '.default, .target, .welcome {{ background-color: {theme.T.stage} !important; }}';
+    }})({'true' if dark else 'false'});""")
 
 
 def attach(win):
@@ -92,5 +123,6 @@ def view(path):
         _address = netron.serve(path, address=("localhost", 0), browse=False)
         _path = path
         _view.load(QUrl(url()))
+    _apply_theme(_view)
     _view.show()
     return _view

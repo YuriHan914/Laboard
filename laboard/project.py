@@ -2,10 +2,18 @@
 
 Nothing here assumes particular file names, counts or formats:
 
-* Data rows come from the ``[db]`` table when one is configured and reachable, else from a
-  table file (csv / tsv / jsonl / parquet) under ``paths.data``, else from a scan of
-  ``paths.data`` itself. Path / label / split columns are matched by common names, then
-  detected from the values; ``[db.columns]`` or ``[data.columns]`` override them.
+* Data rows come from one of three sources, picked by ``paths.data``:
+
+  - ``data = "DB"`` (the name of a toml table, any case, quotes optional): rows from that
+    table's database, e.g. ``[DB] supabase = "http://127.0.0.1:54323/"  table = "semiconductor"``;
+  - a table file (csv / tsv / jsonl / parquet) listing one data file per row;
+  - a folder: the first table file under it that points at real files, else a scan of the folder
+    (ImageFolder-style ``split/label/file``).
+
+  A ``[db]`` table next to a path is tried first and falls back to that path. The ground truth
+  of a db table or table file is always its ``label`` column. Path / split columns are matched
+  by common names, then detected from the values; ``[db.columns]`` or ``[data.columns]``
+  override them.
 * Models are files with a known checkpoint extension (``[models] extensions`` overrides);
   when none match, every file under ``paths.models`` is listed.
 * Runs are folders under ``paths.runs`` holding json / yaml / toml configs.
@@ -32,11 +40,12 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
-from . import store
+from . import store, tomledit
 
-# column name aliases, first match wins (db: file_path/class/type, csv: data_path/labels/status)
+# column name aliases, first match wins (db: file_path/label/type, csv: data_path/label/status).
+# The ground truth of a db table / table file is always its "label" column; [*.columns] can't move it.
 COLS = dict(path=("file_path", "data_path", "path", "filepath", "file", "image", "image_path", "img", "filename"),
-            label=("class", "labels", "label", "cls", "class_name", "category", "target"), split=("type", "status", "split", "subset", "set"),
+            label=("label",), split=("type", "status", "split", "subset", "set"),
             task=("object", "task"), created=("create_date", "created_at", "created", "date", "timestamp"),
             trained=("trained", "used"), predict=("predict", "prediction", "pred", "predicted"), id=("id",))
 SPLIT_WORDS = {"train": "train", "training": "train", "val": "valid", "valid": "valid", "validation": "valid",
@@ -55,6 +64,9 @@ MAX_DATA_FILES = 200_000  # rows read from a table / files from a data scan
 MAX_RESULT_FILES = 20_000
 MAX_RUNS, RUN_DEPTH = 500, 3
 SNAPSHOT_ROOT = Path(tempfile.gettempdir()) / "laboard-snapshots"
+PRED_JSON_KEYS = dict(predict=("predict", "prediction", "class", "label", "pred"),
+                      predict_score=("predict_score", "score", "confidence", "prob", "probability"))
+RESERVED = {"project", "git", "paths", "data", "models", "labels", "lables", "prediction"}  # toml tables that aren't a database
 
 _PATCHED = ("PROJECT", "COMMITS", "ROOT_FOLDERS", "DASH", "DATA_FOLDERS", "CLASSES", "SPLIT_TOTALS", "SPLIT_SOURCE",
             "SPLIT_OVERLAP", "MODEL_FILES", "MODEL_INFO", "RUNS", "RUN_DETAILS", "GPU", "RESULT_FILES",
@@ -134,7 +146,7 @@ def _ext(name):
 
 # ---------------------------------------------------------------- data rows: db → table file → folder scan
 def _pg_params(db):
-    url = db.get("dsn") or db.get("url") or db.get("supabase") or ""
+    url = db.get("dsn") or db.get("url") or db.get("supabase") or db.get("db_ip") or ""
     if url.startswith(("postgres://", "postgresql://")):
         return dict(dsn=url, connect_timeout=3)
     # a Supabase URL (local stack: API 54321, Postgres 54322, Studio 54323) → its Postgres
@@ -186,9 +198,13 @@ def _read_table(f):
 
 
 def _rows_from_table(data_dir, data_cfg, base):
-    """First table file under ``paths.data`` (or ``[data] table``) that has a file-path column."""
+    """``paths.data`` when it is a table file, else the first table file under it (or ``[data] table``)
+    that has a file-path column."""
+    explicit = data_cfg.get("table") or (data_dir and data_dir.is_file())
     if data_cfg.get("table"):
-        candidates = [_resolve(data_cfg["table"], data_dir if data_dir else base)]
+        candidates = [_resolve(data_cfg["table"], data_dir if data_dir and data_dir.is_dir() else base)]
+    elif data_dir and data_dir.is_file():
+        candidates = [data_dir] if data_dir.suffix.lower() in TABLE_EXT else []
     elif data_dir and data_dir.is_dir():
         candidates = sorted(f for ext in TABLE_EXT for pat in ("*", "*/*") for f in data_dir.glob(pat + ext))
     else:
@@ -201,9 +217,9 @@ def _rows_from_table(data_dir, data_cfg, base):
         col = _columns(rows, data_cfg.get("columns", {}))["path"] if rows else None
         if not col:
             continue
-        # an auto-found table must point at real files; an explicit [data] table is trusted
+        # an auto-found table must point at real files; an explicit [data] table / paths.data file is trusted
         sample = [_abs(r.get(col), f.parent) for r in rows[:50] if r.get(col)]
-        if data_cfg.get("table") or sum(os.path.exists(p) for p in sample) >= 0.5 * len(sample):
+        if explicit or sum(os.path.exists(p) for p in sample) >= 0.5 * len(sample):
             return rows, dict(kind="file", name=f.name, where=str(f), label=f"{f.suffix[1:]} · {f.name}", base=f.parent)
     return None
 
@@ -213,14 +229,15 @@ def _abs(p, base):
     return p if os.path.isabs(p) or not base else str(Path(base, p))
 
 
-def _rows_from_scan(data_dir):
-    """One row per file under ``paths.data``; split and label from an ImageFolder-style path."""
+def _rows_from_scan(data_dir, skip=()):
+    """One row per file under ``paths.data`` (but ``skip`` extensions); split and label from an
+    ImageFolder-style path."""
     if not data_dir or not data_dir.is_dir():
         return None
     rows = []
     for dp, files in _walk(data_dir):
         for f in files:
-            if Path(f).suffix.lower() in SKIP_DATA_EXT or Path(f).suffix.lower() in TABLE_EXT:
+            if Path(f).suffix.lower() in SKIP_DATA_EXT or Path(f).suffix.lower() in TABLE_EXT or Path(f).suffix.lower() in skip:
                 continue
             parts = [p.lower() for p in Path(_rel(dp, data_dir)).parts]
             at = next((i for i, p in enumerate(parts) if p in SPLIT_WORDS), None)
@@ -366,9 +383,9 @@ def _data(rows, src, cols):
 
 
 
-def _load_data(cfg, paths, base, detected, notes, as_of=None):
-    """Rows from db / table / scan. ``as_of`` (a commit's time) hides db rows created after it."""
-    db, data_cfg = cfg.get("db", {}), cfg.get("data", {})
+def _load_data(db, data_cfg, paths, base, detected, notes, as_of=None):
+    """Rows from db / table / scan. ``db``: the toml's database table ({} for none); paths.data is the
+    fallback when set. ``as_of`` (a commit's time) hides db rows created after it."""
     src = None
     if db.get("table"):
         try:
@@ -376,30 +393,196 @@ def _load_data(cfg, paths, base, detected, notes, as_of=None):
             detected.append(("Database", f"{src[1]['where']} · {db['table']} · {len(src[0]):,} rows", "positive", "Connected"))
         except Exception as e:  # driver missing, server down, bad table: fall back to paths.data
             msg = str(e).strip().splitlines()[0] if str(e).strip() else type(e).__name__
-            notes.append(f"DB {db['table']} unavailable ({msg}); using paths.data")
+            notes.append(f"DB {db['table']} unavailable ({msg}); " + ("using Path.Data" if paths["data"] else "no Path.Data to fall back to"))
             detected.append(("Database", f"{db['table']} · {msg}", "warning", "Unreachable"))
-    overrides = db.get("columns", {}) if src else data_cfg.get("columns", {})
+    elif db:
+        notes.append("database table has no 'table' key")
+    overrides = {k: v for k, v in (db.get("columns", {}) if src else data_cfg.get("columns", {})).items() if k != "label"}
     if src is None:
         src = _rows_from_table(paths["data"], data_cfg, base) or _rows_from_scan(paths["data"])
     if src is None:
+        if paths["data"] and paths["data"].is_file():
+            notes.append(f"{paths['data'].name}: no file-path column found (set [Data.Columns] Path)")
         return None
     if src[1]["kind"] == "scan":  # rows are built normalized
-        cols, rows = dict.fromkeys(COLS), src[0]
-    else:
-        cols = _columns(src[0], overrides)
-        if not cols["path"]:
-            notes.append(f"{src[1]['label']}: no file-path column found (set [db.columns] / [data.columns] path)")
-            return None
-        rows = _normalize(src[0], cols, src[1].get("base") or paths["data"])
-        if as_of and src[1]["kind"] == "db":  # db rows aren't versioned in git; their created column dates them
-            dated = [r for r in rows if r["created"] is None or r["created"] <= as_of]
-            if any(r["created"] for r in rows):
-                if len(dated) < len(rows):
-                    notes.append(f"{len(rows) - len(dated):,} db rows created after {as_of:%b %d, %H:%M} hidden")
-            else:
-                notes.append("db rows have no created column; showing all of them")
-            rows = dated
+        return _data(src[0], src[1], dict.fromkeys(COLS))
+    cols = _columns(src[0], overrides)
+    if not cols["path"]:
+        notes.append(f"{src[1]['label']}: no file-path column found (set [DB.Columns] / [Data.Columns] Path)")
+        return None
+    if not cols["label"]:
+        notes.append(f"{src[1]['label']}: no 'label' column; files have no ground truth")
+    return _to_data(src, cols, paths["data"], notes, as_of)
+
+
+def _to_data(src, cols, base, notes, as_of):
+    """``_data`` from raw table / db rows. ``as_of`` (a commit's time) hides db rows created after it."""
+    rows = _normalize(src[0], cols, src[1].get("base") or base)
+    if as_of and src[1]["kind"] == "db":  # db rows aren't versioned in git; their created column dates them
+        dated = [r for r in rows if r["created"] is None or r["created"] <= as_of]
+        if any(r["created"] for r in rows):
+            if len(dated) < len(rows):
+                notes.append(f"{len(rows) - len(dated):,} db rows created after {as_of:%b %d, %H:%M} hidden")
+        else:
+            notes.append("db rows have no created column; showing all of them")
+        rows = dated
     return _data(rows, src[1], cols) if rows else None
+
+
+# ---------------------------------------------------------------- task = "classification": [data] / [prediction]
+def _db_rows(cfg, table, section, detected, notes, cache):
+    """(rows, src) of ``table`` through the [db] connection, or None (noted). ``cache``: table → result,
+    so [data] and [prediction] on one table query it once."""
+    if table in cache:
+        return cache[table]
+    cache[table] = None
+    if cfg.get("project", {}).get("db") is False:  # left out or empty: allowed
+        notes.append(f"[{section}] Type = DB, but [Project] DB = False")
+    elif not table:
+        notes.append(f"[{section}] Type = DB has no Table")
+    else:
+        try:
+            cache[table] = _rows_from_db({**cfg.get("db", {}), "table": table})
+            src = cache[table]
+            detected.append(("Database", f"{src[1]['where']} · {table} · {len(src[0]):,} rows", "positive", "Connected"))
+        except Exception as e:  # driver missing, server down, bad table
+            msg = str(e).strip().splitlines()[0] if str(e).strip() else type(e).__name__
+            notes.append(f"DB {table} unavailable ({msg})")
+            detected.append(("Database", f"{table} · {msg}", "warning", "Unreachable"))
+    return cache[table]
+
+
+def _classification_data(cfg, paths, detected, notes, as_of, cache):
+    """[data] ``type`` = "db" (``table``) | "csv" (``file_path``) | "folder" (``file_path``, split/label/file).
+
+    For db / csv the ground truth is the ``label`` column (default "label") and the file-path column is
+    guessed, or set with ``path``. Predictions never come from the data; they're read from [prediction].
+    """
+    dcfg = cfg.get("data", {})
+    kind = str(dcfg.get("type", "")).lower()
+    if kind == "folder":
+        pcfg = cfg.get("prediction", {})
+        skip = {"." + str(pcfg.get("format") or "txt").lower().lstrip(".")} if str(pcfg.get("type", "")).lower() == "folder" else set()
+        src = _rows_from_scan(paths["data"], skip)  # prediction files kept next to the data aren't data
+        return _data(src[0], src[1], dict.fromkeys(COLS)) if src else None
+    if kind == "db":
+        src = _db_rows(cfg, dcfg.get("table"), "data", detected, notes, cache)
+    elif kind == "csv":
+        f = paths["data"]
+        if not f or not f.is_file():
+            notes.append(f"[Data] File_path {dcfg.get('file_path')} is not a file")
+            return None
+        try:
+            src = _read_table(f), dict(kind="file", name=f.name, where=str(f), label=f"{f.suffix[1:]} · {f.name}", base=f.parent)
+        except (OSError, ValueError, ImportError) as e:
+            notes.append(f"{f.name}: {e}")
+            return None
+    else:
+        notes.append(f"[Data] Type must be DB, CSV or Folder, not {dcfg.get('type')!r}" if kind else "[Data] Type is not set")
+        return None
+    if not src or not src[0]:
+        return None
+    gt = dcfg.get("label") or "label"
+    cols = _columns(src[0], {"path": dcfg["path"]} if dcfg.get("path") else {})
+    cols.update(label=gt if any(gt in r for r in src[0][:50]) else None, predict=None)
+    if not cols["path"]:
+        notes.append(f"{src[1]['label']}: no file-path column found (set [Data] Path)")
+        return None
+    if not cols["label"]:
+        notes.append(f"{src[1]['label']}: no '{gt}' column; files have no ground truth")
+    return _to_data(src, cols, paths["data"], notes, as_of)
+
+
+def _pred_txt(f):
+    """dict(predict, predict_score) from the first line of a prediction txt: "<class> [score]"."""
+    try:
+        line = next((l for l in f.read_text(errors="replace").splitlines() if l.strip()), "")
+    except OSError:
+        line = ""
+    parts = line.replace(",", " ").split()
+    return dict(predict=parts[0] if parts else None, predict_score=parts[1] if len(parts) > 1 else None)
+
+
+def _pred_json(f, keys):
+    """dict(predict, predict_score) from a prediction json object (or the first object of a list). ``keys``:
+    {"predict": key or None, "predict_score": key or None}; a key left None is the first of PRED_JSON_KEYS found."""
+    try:
+        d = json.loads(f.read_text(errors="replace"))
+    except (OSError, ValueError):
+        d = None
+    if isinstance(d, list):
+        d = next((x for x in d if isinstance(x, dict)), None)
+    if not isinstance(d, dict):
+        return dict.fromkeys(keys)
+    return {k: d.get(key) if key else next((d[a] for a in PRED_JSON_KEYS[k] if a in d), None) for k, key in keys.items()}
+
+
+def _classification_predictions(cfg, paths, base, rows, detected, notes, cache):
+    """[prediction] ``type`` = "csv" | "db" | "folder", as {source: dict} like ``store.INFERENCE``.
+
+    * csv: ``path`` is a result file name / glob under paths.results (or an absolute path); one source per match.
+    * db: ``table``; rows match data files by their file-path column.
+    * folder: ``path`` holds one ``<file stem>.<format>`` per data file, at the data file's place in the data
+      tree or anywhere by stem: a txt holding "<class> [score]", or a json object.
+
+    ``predict`` / ``predict_score`` name the class / score columns of csv and db, and the keys of a json
+    (guessed from PRED_JSON_KEYS when left out).
+    """
+    pcfg = cfg.get("prediction", {})
+    kind = str(pcfg.get("type", "")).lower()
+    shows = {k: pcfg[k] for k in ("predict", "predict_score") if pcfg.get(k)}
+    if kind == "csv":
+        sources, inotes = _inference(pcfg.get("path"), shows, paths["results"], what="[Prediction] Path")
+        notes += inotes
+        return sources
+    if kind == "db":
+        table = pcfg.get("table")
+        src = _db_rows(cfg, table, "prediction", detected, notes, cache)
+        if not src or not src[0]:
+            return {}
+        col = _columns(src[0], {})["path"]
+        if not col:
+            notes.append(f"[Prediction] {table}: no file-path column")
+            return {}
+        lost = [c for c in shows.values() if c not in src[0][0]]
+        if lost:
+            notes.append(f"[Prediction] {table}: no column {', '.join(lost)}")
+        by_path, by_name = _index(src[0], col, shows, None)
+        return {f"db · {table}": dict(file=src[1]["where"], rel=f"db · {table}", shows=shows, by_path=by_path, by_name=by_name)}
+    if kind == "folder":
+        fmt = str(pcfg.get("format") or "txt").lower().lstrip(".")
+        pdir = _resolve(pcfg.get("path"), base)
+        if fmt not in ("txt", "json"):
+            notes.append(f"[Prediction] Format {fmt} isn't supported (txt, json)")
+            return {}
+        if not pdir or not pdir.is_dir():
+            notes.append(f"[Prediction] Path {pcfg.get('path')} is not a folder")
+            return {}
+        by_rel, by_stem = {}, {}
+        for dp, fs in _walk(pdir):
+            for f in fs:
+                if f.lower().endswith("." + fmt):
+                    by_rel[os.path.splitext(_rel(dp / f, pdir))[0]] = dp / f
+                    by_stem.setdefault(Path(f).stem, dp / f)
+        if not by_rel:
+            notes.append(f"[Prediction] no .{fmt} files under {pdir}")
+            return {}
+        root = os.path.commonpath([os.path.dirname(r["path"]) for r in rows]) if rows else str(pdir)
+        keys = {k: pcfg.get(k) for k in ("predict", "predict_score")}
+        read = (lambda f: _pred_json(f, keys)) if fmt == "json" else _pred_txt
+        by_path = {}
+        for r in rows:
+            f = by_rel.get(os.path.splitext(os.path.relpath(r["path"], root))[0]) or by_stem.get(Path(r["path"]).stem)
+            if f:
+                by_path[os.path.normpath(r["path"])] = dict(values=read(f))
+        if fmt == "json":
+            shows = {k: f"json · {key or ' / '.join(PRED_JSON_KEYS[k][:2])}" for k, key in keys.items()}
+        else:
+            shows = dict(predict="txt · 1st value", predict_score="txt · 2nd value")
+        return {f"{pdir.name}/": dict(file=str(pdir), rel=f"{pdir.name}/ · *.{fmt}", by_path=by_path, by_name={},
+                                      shows=shows)}
+    notes.append(f"[Prediction] Type must be CSV, DB or Folder, not {pcfg.get('type')!r}" if kind else "[Prediction] Type is not set")
+    return {}
 
 
 # ---------------------------------------------------------------- git
@@ -407,7 +590,7 @@ def _git_info(root, cfg):
     top = _run("git", "rev-parse", "--show-toplevel", cwd=root).strip()
     if not top:
         return None
-    branch = _run("git", "branch", "--show-current", cwd=top).strip() or cfg.get("branch", "HEAD")
+    branch = _run("git", "branch", "--show-current", cwd=top).strip() or cfg.get("branch") or "HEAD"
     head = _run("git", "status", "-sb", cwd=top).splitlines()
     track = head[0][3:] if head else ""
     dirty = len(head) - 1
@@ -690,25 +873,38 @@ def _results(results_dir):
 
 
 # ---------------------------------------------------------------- labels / inference per data file
-def _inference(lcfg, results_dir):
-    """``[labels]`` (also read when spelled ``[lables]``): label and inference columns from result files.
+def _index(rows, path_col, shows, base):
+    """(by_path, by_name): dict(values={key: row[column] for shows}) per data file path / file name."""
+    by_path, by_name = {}, {}
+    for r in rows:
+        p = r.get(path_col)
+        if not p:
+            continue
+        rec = dict(values={k: r.get(c) for k, c in shows.items()})
+        p = os.path.normpath(_abs(p, base))
+        by_path[p] = rec
+        by_name.setdefault(os.path.basename(p), rec)
+    return by_path, by_name
 
-    ``result_file`` is a file name, relative path or glob under paths.results (or an absolute path);
-    every match is one source, e.g. one ``inference.csv`` per model folder. ``path`` / ``label`` name the
-    file-path and label columns (guessed when left out); every other key names a column to show, e.g.
-    ``infer = "classification"``. Rows match data files by path, or by file name when paths differ.
-    Returns ({source: dict}, notes).
+
+def _inference(name, shows, results_dir, path_col=None, what="[Labels] Result_file"):
+    """Inference columns from result files: ``[labels]`` (also read when spelled ``[lables]``) and
+    ``[prediction] type = "csv"``.
+
+    ``name`` is a file name, relative path or glob under paths.results (or an absolute path); every
+    match is one source, e.g. one ``inference.csv`` per model folder. ``shows`` maps a key to the column
+    shown for it, e.g. ``{"infer": "classification"}``; ``path_col`` names the file-path column (guessed
+    when None). Rows match data files by path, or by file name when paths differ. The ground truth stays
+    the data's own label; a label column in the result file isn't read. Returns ({source: dict}, notes).
     """
-    name = lcfg.get("result_file")
     if not name:
-        return {}, ["[labels] has no result_file"]
+        return {}, [f"{what} not set"]
     if Path(name).is_absolute():
         files = [Path(name)] if Path(name).is_file() else []
     else:
         files = sorted(f for f in results_dir.rglob(name) if f.is_file()) if results_dir and results_dir.is_dir() else []
     if not files:
-        return {}, [f"[labels] result_file {name} not found under paths.results"]
-    shows = {k: v for k, v in lcfg.items() if k not in ("result_file", "path", "label")}
+        return {}, [f"{what} {name} not found under Path.Results"]
     sources, notes = {}, []
     for f in files:
         try:
@@ -716,7 +912,7 @@ def _inference(lcfg, results_dir):
         except (OSError, ValueError, ImportError) as e:
             notes.append(f"{f.name}: {e}")
             continue
-        cols = _columns(rows, {k: lcfg[k] for k in ("path", "label") if k in lcfg}) if rows else {}
+        cols = _columns(rows, {"path": path_col} if path_col else {}) if rows else {}
         if not cols.get("path"):
             notes.append(f"{_rel(f, results_dir)}: no file-path column")
             continue
@@ -724,17 +920,9 @@ def _inference(lcfg, results_dir):
         lost = [c for c in shows.values() if c not in names]
         if lost:
             notes.append(f"{_rel(f, results_dir)}: no column {', '.join(lost)}")
-        by_path, by_name = {}, {}
-        for r in rows:
-            p = r.get(cols["path"])
-            if not p:
-                continue
-            rec = dict(label=r.get(cols["label"]) if cols["label"] else None, values={k: r.get(c) for k, c in shows.items()})
-            p = os.path.normpath(_abs(p, f.parent))
-            by_path[p] = rec
-            by_name.setdefault(os.path.basename(p), rec)
+        by_path, by_name = _index(rows, cols["path"], shows, f.parent)
         src = _rel(f.parent, results_dir) if f.parent != results_dir else f.name
-        sources[src] = dict(file=str(f), rel=_rel(f, results_dir.parent if results_dir else f.parent), label_col=cols["label"],
+        sources[src] = dict(file=str(f), rel=_rel(f, results_dir.parent if results_dir else f.parent),
                             shows=shows, by_path=by_path, by_name=by_name)
     return sources, notes
 
@@ -772,30 +960,46 @@ def _set(name, value):
         setattr(store, name, value)
 
 
-def load(toml_path, commit=None):
+def _read_toml(p, text=None):
+    """The project toml (``text``, else the file) with every name lower case and [Path] read as [paths]
+    (``tomledit.normalize``); a bare word value (``data = DB``) is read as a string."""
+    return tomledit.normalize(tomledit.parse(p.read_text() if text is None else text))
+
+
+def load(toml_path, commit=None, text=None):
     """Read ``toml_path`` and fill ``store`` with the project's data. Returns a list of notes.
 
     ``commit``: show the project as it was at that commit (paths inside the repo are read from a
-    snapshot of it, db rows are cut at its time). On any error ``store`` keeps what it held before
-    and the error is raised.
+    snapshot of it, db rows are cut at its time). ``text``: the project file's content to use instead
+    of what's on disk (values edited in Setting; the file itself is never written). On any error
+    ``store`` keeps what it held before and the error is raised.
     """
     before = {k: copy.deepcopy(getattr(store, k)) for k in _PATCHED}
     try:
         toml_path = Path(toml_path).expanduser().resolve()
-        with open(toml_path, "rb") as f:
-            cfg = tomllib.load(f)
+        cfg = _read_toml(toml_path, text)
         _restore()
-        return _load(toml_path, cfg, commit)
+        return _load(toml_path, cfg, commit, text)
     except Exception:
         for k, v in before.items():
             _set(k, v)
         raise
 
 
-def _load(toml_path, cfg, commit):
+def _load(toml_path, cfg, commit, text=None):
     base = toml_path.parent
     proj, gcfg, pcfg = cfg.get("project", {}), cfg.get("git", {}), cfg.get("paths", {})
-    paths = {k: _resolve(pcfg.get(k), base) for k in ("data", "models", "runs", "results")}
+    # task = "classification": [data] / [prediction] say where data and predictions are (see _classification_data)
+    classification = str(proj.get("task", "")).lower() == "classification"
+    dcfg = cfg.get("data", {})
+    if classification:
+        ref, db_key = dcfg.get("file_path") if str(dcfg.get("type", "")).lower() in ("csv", "folder") else None, None
+    else:
+        # paths.data naming a toml table (data = "DB" → [DB]) reads rows from that database only
+        ref = pcfg.get("data")
+        db_key = ref.lower() if isinstance(ref, str) and ref.lower() not in RESERVED and isinstance(cfg.get(ref.lower()), dict) else None
+    paths = {k: None if k == "data" and db_key else _resolve(ref if k == "data" else pcfg.get(k), base)
+             for k in ("data", "models", "runs", "results")}
     root = _resolve(proj.get("root"), base) or next((p for p in paths.values() if p), base)
     name = proj.get("name") or root.name
     notes, detected, dash = [], [], {}
@@ -823,11 +1027,15 @@ def _load(toml_path, cfg, commit):
             else:
                 paths[k] = None
                 missing[k] = f"{p} · not tracked in git at {sha[:7]}" if k in rels else f"{p} · outside the git repository"
-                notes.append(f"paths.{k} is {'not tracked at ' + sha[:7] if k in rels else 'outside the repository'}")
+                notes.append(f"Path.{k.capitalize()} is {'not tracked at ' + sha[:7] if k in rels else 'outside the repository'}")
         view = dict(short=sha[:7], when=datetime.fromtimestamp(int(_run("git", "show", "-s", "--format=%ct", sha, cwd=top))))
         detected.insert(1, ("Snapshot", f"{sha[:7]} · {view['when']:%b %d, %H:%M} · read-only", "warning", "Past commit"))
 
-    d = _load_data(cfg, paths, base, detected, notes, as_of=view["when"] if view else None)
+    as_of, db_cache = view["when"] if view else None, {}
+    if classification:
+        d = _classification_data(cfg, paths, detected, notes, as_of, db_cache)
+    else:
+        d = _load_data(cfg.get(db_key or "db", {}), dcfg, paths, base, detected, notes, as_of=as_of)
     if d:
         for k in ("DATA_FOLDERS", "CLASSES", "SPLIT_TOTALS", "SPLIT_SOURCE", "SPLIT_OVERLAP"):
             _set(k, d[k])
@@ -835,7 +1043,11 @@ def _load(toml_path, cfg, commit):
         detected += d["detected"]
     else:
         notes.append("No data rows found")
-        detected.append(("Data", missing.get("data") or str(paths["data"] or "paths.data not set"), "warning", "Not found"))
+        if classification:
+            where = f"[Data] Type = {dcfg.get('type')} · {dcfg.get('table') or dcfg.get('file_path') or 'no Table / File_path'}"
+        else:
+            where = f"[{ref}] {cfg[db_key].get('table', 'no table')}" if db_key else str(paths["data"] or "Path.Data not set")
+        detected.append(("Data", missing.get("data") or where, "warning", "Not found"))
 
     run_git = dict(top=top, rev=view["short"] if view else "HEAD", repo=repo_paths["runs"]) if git and repo_paths["runs"] else None
     readers = (("models", lambda p: _models(p, cfg.get("models", {}))), ("runs", lambda p: _runs(p, run_git)),
@@ -844,8 +1056,8 @@ def _load(toml_path, cfg, commit):
         p = paths[key]
         part = fn(p) if p and p.is_dir() else None
         if part is None:
-            notes.append(f"Nothing found in paths.{key}")
-            detected.append((key.capitalize(), missing.get(key) or str(p or f"paths.{key} not set"), "warning", "Not found"))
+            notes.append(f"Nothing found in Path.{key.capitalize()}")
+            detected.append((key.capitalize(), missing.get(key) or str(p or f"Path.{key.capitalize()} not set"), "warning", "Not found"))
             continue
         for k, v in part.items():
             if k not in ("dash", "detected"):
@@ -854,12 +1066,28 @@ def _load(toml_path, cfg, commit):
         detected += part["detected"]
 
     lcfg = cfg.get("labels") or cfg.get("lables")
-    if lcfg:
-        inference, inotes = _inference(lcfg, paths["results"])
+    pred = cfg.get("prediction")
+    if classification and pred:
+        rows = [r for fd in d["DATA_FOLDERS"].values() for r in fd["rows"]] if d else []
+        inference = _classification_predictions(cfg, paths, base, rows, detected, notes, db_cache)
+        _set("INFERENCE", inference)
+        what = f"[Prediction] Type = {pred.get('type')} · {pred.get('table') or pred.get('path') or '—'}"
+        # data files with at least one prediction value in some source
+        n = len({p for src in inference.values() for p, rec in src["by_path"].items()
+                 if any(v not in (None, "") for v in rec["values"].values())} & {os.path.normpath(r["path"]) for r in rows})
+        if n:
+            cols = ", ".join(f"{tomledit.title(k)}={v}" for k, v in next(iter(inference.values()))["shows"].items())
+            detected.append(("Prediction", f"{what} · {len(inference)} source(s) · {n:,} of {len(rows):,} files · {cols}",
+                             "positive", "Found"))
+        else:
+            detected.append(("Prediction", what, "warning", "Not found"))
+    elif lcfg and not classification:
+        shows = {k: v for k, v in lcfg.items() if k not in ("result_file", "path")}
+        inference, inotes = _inference(lcfg.get("result_file"), shows, paths["results"], lcfg.get("path"))
         _set("INFERENCE", inference)
         notes += inotes
         if inference:
-            cols = ", ".join(f"{k}={v}" for k, v in next(iter(inference.values()))["shows"].items())
+            cols = ", ".join(f"{tomledit.title(k)}={v}" for k, v in next(iter(inference.values()))["shows"].items())
             detected.append(("Labels / inference", f"{lcfg['result_file']} · {len(inference)} file(s) · {cols}", "positive", "Found"))
         else:
             detected.append(("Labels / inference", f"{lcfg.get('result_file', 'result_file not set')}", "warning", "Not found"))
@@ -869,11 +1097,11 @@ def _load(toml_path, cfg, commit):
     _set("DASH", {**store.DASH, **dash})
     n_runs = len(store.RUN_DETAILS)
     _set("PROJECT", dict(
-        name=name, path=str(root), toml=str(toml_path), loaded=True, view=view["short"] if view else None,
+        name=name, path=str(root), toml=str(toml_path), loaded=True, edited=text is not None, view=view["short"] if view else None,
         remote=(git["remote"] if git else gcfg.get("remote", "")).removeprefix("git@").removesuffix(".git") or "—",
         branch=(f"detached at {view['short']} · read-only snapshot" if view else f"{git['branch']} · {git['sync']}")
-        if git else gcfg.get("branch", "—"),
-        branch_name=git["branch"] if git else gcfg.get("branch", "—"),
+        if git else gcfg.get("branch") or "—",
+        branch_name=git["branch"] if git else gcfg.get("branch") or "—",
         dirty=(f"{git['dirty']} uncommitted" if git["dirty"] else "clean") if git else "no git",
         commits=(f"{_run('git', 'rev-list', '--count', view['short'], cwd=top).strip()} · {git['authors']} contributors"
                  if view else f"{git['n']} · {git['authors']} contributors") if git else "—",
@@ -882,7 +1110,7 @@ def _load(toml_path, cfg, commit):
     _set("ROOT_FOLDERS", [(name, str(root.parent) + "/", str(root))] +
          [(k, _rel(p, root), str(p)) for k, p in paths.items() if p])
     _set("RECENT_PROJECTS", [(name, str(toml_path.parent))])
-    _set("TOML", toml_path.read_text().splitlines())
+    _set("TOML", (toml_path.read_text() if text is None else text).splitlines())
     _set("DETECTED", detected)
     from PyQt6.QtCore import PYQT_VERSION_STR
     watched = [f"{p.name}/" for k, p in paths.items() if p and p.is_dir() and k != "data"]

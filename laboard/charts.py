@@ -608,7 +608,7 @@ class Stage(QWidget):
         clip.addRoundedRect(area, self.radius, self.radius)
         p.setClipPath(clip)
         if not self.pix.isNull():
-            p.fillRect(r, qc("#ffffff"))
+            p.fillRect(r, qc(T.stage))
             # smooth when shrinking; nearest-neighbour when zoomed in so single pixels stay visible
             p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, self._scale() < 2)
             p.drawPixmap(self._image_rect(), self.pix, QRectF(self.pix.rect()))
@@ -648,7 +648,7 @@ class Stage(QWidget):
                 tri.lineTo(c.x() - 5, c.y() + 9)
                 tri.closeSubpath()
                 p.fillPath(tri, qc("#0e0f0c"))
-        chip = qc("#0e0f0c", 0.7)  # readable over the white background and over any image
+        chip = qc("#0e0f0c", 0.7)  # readable over the stage (white or black) and over any image
         if self.kind == "raw":
             self._chip(p, 12, 12, f"label: {self.label}", chip)
         elif self.kind == "inference":

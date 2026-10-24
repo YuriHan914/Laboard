@@ -114,14 +114,14 @@ def _result(app, row):
 
 
 def _label_and_prediction(app, row):
-    """(label, prediction rows as (key, value, tone)). With [labels], both come from its result file; otherwise
-    from the data row (label column, db ``predict`` column). A value equal to the label is green, another label
-    value red."""
+    """(label, prediction rows as (key, value, tone)). The label is always the data row's ground truth; the
+    predictions come from the [labels] result file, or without one from the data's ``predict`` column. A value
+    equal to the label is green, another label value red."""
     if store.INFERENCE:
         rec = _result(app, row)
         if rec is None:
             return row["label"] or "n/a", [("", f"not in {store.INFERENCE[app.s.infer_source]['rel']}", PLAIN)]
-        label, classes = rec["label"] or row["label"], set(store.CLASSES)
+        label, classes = row["label"], set(store.CLASSES)
         chips = []
         for key, v in rec["values"].items():
             tone = PLAIN if v in (None, "") else GOOD if str(v) == str(label) else BAD if v in classes else PLAIN
@@ -162,7 +162,7 @@ def _viewer(app, fd, files, di, sel):
     if mode != "raw":
         panes.append(Stage(sel, meta, "inference", pred=pred, path=path, radius=12, view=views["inference"]))
     area = StageArea(panes, mode, "#868685" if both else None)
-    stage = Box(bg="#ffffff", radius=12, border=f"1px solid {T.line}", layout=vbox(area, margins=(1, 1, 1, 1)))
+    stage = Box(bg="stage", radius=12, border=f"1px solid {T.line}", layout=vbox(area, margins=(1, 1, 1, 1)))
 
     split_pill = Box(bg="surf2", radius=12, layout=hbox(Dot(split_dot, 8), 6, Label(split_label, 12, 600),
                                                         margins=(10, 4, 10, 4), align=Qt.AlignmentFlag.AlignVCenter))

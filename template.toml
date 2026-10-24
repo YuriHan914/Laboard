@@ -1,0 +1,37 @@
+# Laboard project file for a classification project.
+# It combines the DB / CSV / Folder formats: fill in the keys your data uses and leave the others
+# empty (""). Paths are absolute, or relative to this file. Settings shows every key below with a
+# description of what to put in it. Names are read in any case.
+
+[Project]
+Name = ""                  # project name; empty: the root folder's name
+Root = ""                  # folder of the project's git repository
+Task = "classification"    # classification | object detection | segmentation
+DB = False                 # True when [Data] or [Prediction] uses Type = "DB"
+
+[DB]                       # database connection, shown and used when [Project] DB = True
+DB = ""                    # supabase
+DB_ip = ""                 # e.g. "http://127.0.0.1:54323/" or "postgresql://user:password@host:5432/db"
+
+[Git]                      # fallbacks when git can't tell
+Remote = ""                # e.g. "github.com:user/repo.git"
+Branch = ""                # e.g. "main"
+
+[Path]
+Models = ""                # folder with model checkpoints
+Runs = ""                  # folder with one sub-folder per training run
+Results = ""               # folder with result files
+
+[Data]
+Type = ""                  # CSV | DB | Folder
+File_path = ""             # CSV: the csv listing the data files · Folder: the dataset folder (split/label/file)
+Table = ""                 # DB: table with one row per data file
+Label = ""                 # CSV / DB: ground-truth column; empty: "label"
+
+[Prediction]
+Type = ""                  # CSV | DB | Folder
+Path = ""                  # CSV: result file name / glob under Path.Results · Folder: folder of prediction files
+Table = ""                 # DB: table with the predictions
+Format = ""                # Folder: txt | json
+Predict = ""               # CSV / DB: predicted-class column · json: its key
+Predict_score = ""         # CSV / DB: score column · json: its key

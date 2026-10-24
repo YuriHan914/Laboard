@@ -1,11 +1,15 @@
-"""Setting: load a laboard .toml project file, preview it, show what was detected."""
+"""Setting: load a laboard .toml project file, edit its values, show what was detected."""
 import os
+from pathlib import Path
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QFileDialog
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtWidgets import QFileDialog, QLineEdit, QStyle
 
-from .. import store, theme
-from ..widgets import Box, Button, Flow, HLine, Label, LineEdit, Scroll, Segmented, badge, breakable, card, hbox, vbox, wrap
+from .. import store, theme, tomledit
+from ..widgets import (Box, Button, Combo, Flow, HLine, Label, LineEdit, Scroll, Segmented, badge, breakable, card, hbox,
+                       set_tip, vbox, wrap)
+
+ROW_H = Button.height_for("sm")  # inputs, value text and buttons of a field row share one height
 
 
 def _toml_lines(lines):
@@ -21,6 +25,175 @@ def _toml_lines(lines):
         row.setAlignment(num, Qt.AlignmentFlag.AlignTop)
         out.append(row)
     return out
+
+
+def _show(v):
+    """A value as the field row shows it."""
+    if v is None:
+        return ""  # a key the file leaves out shows empty, like an empty value
+    return v if isinstance(v, str) else tomledit.written(v)
+
+
+def _is_path(sec, key, v):
+    s, k = tomledit.canon(sec), key.lower()
+    return s == "paths" or k in ("root", "file_path") or (s == "prediction" and k == "path") or \
+        (isinstance(v, str) and v.startswith(("/", "~", "./", "../")))
+
+
+def _wants_file(sec, key, v, cfg):
+    """True when the path picker should choose a file, False for a folder. ``cfg``: the file, normalized."""
+    s, k = tomledit.canon(sec), key.lower()
+    if s == "paths" or k == "root":
+        return False
+    if k in ("file_path", "path") and s in ("data", "prediction"):
+        kind = str(cfg.get(s, {}).get("type") or "").lower()
+        if kind in ("csv", "folder"):
+            return kind == "csv"
+    p = Path(str(v or "")).expanduser()
+    return p.is_file() or bool(p.suffix)
+
+
+def _input(app, sec, key, orig, cfg, toml, draft):
+    """The editor of a field: a drop-down for ``tomledit.ENUMS`` keys and booleans, else a text box (with a
+    folder / file picker for paths). The chosen value goes to ``draft["value"]``."""
+    opts = tomledit.enum(sec, key) or ((True, False) if isinstance(orig, bool) else None)
+    if opts:
+        same = next((o for o in opts if isinstance(o, str) and isinstance(orig, str) and o.lower() == orig.lower()), orig)
+        opts = list(opts) + [v for v in (same,) if v is not None and v not in opts]  # an unknown value stays choosable
+        by_key = {_show(o): o for o in opts}
+        box = Combo([("", "")] + [(k, k) for k in by_key], _show(same) if same is not None else "",
+                    lambda k: draft.update(value=by_key.get(k)), size=14)
+        box.setFixedHeight(ROW_H)
+        return box
+    edit = LineEdit(f"{sec}.{key}" if sec else key, size=13.5, mono=True)
+    edit.setFixedHeight(ROW_H)
+    edit.setText("" if orig is None else _show(orig))
+    typed = str if isinstance(orig, str) or orig is None else tomledit.Raw  # numbers, lists, … stay toml literals
+    edit.textChanged.connect(lambda text: draft.update(value=typed(text)))
+    if _is_path(sec, key, orig):
+        def pick():
+            cur = Path(os.path.expanduser(edit.text().strip() or "."))
+            start = str(cur if cur.is_dir() else cur.parent if cur.parent.is_dir() else Path(toml).parent)
+            if _wants_file(sec, key, edit.text(), cfg):
+                f, _ = QFileDialog.getOpenFileName(app, f"Choose {sec}.{key}", start)
+            else:
+                f = QFileDialog.getExistingDirectory(app, f"Choose {sec}.{key}", start)
+            if f:
+                edit.setText(f)
+        icon = app.style().standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon)
+        act = edit.addAction(icon, QLineEdit.ActionPosition.TrailingPosition)
+        act.setToolTip("Choose from the file system")
+        act.triggered.connect(pick)
+    return edit
+
+
+def _save(app, sec, key, orig, toml, value, error):
+    """Apply ``value`` to the loaded project and load it again; the toml file on disk isn't written (Load reads
+    it again). True when done; on a bad value the reason goes to the ``error`` label."""
+    if (value == orig and type(value) is type(orig)) or (orig is None and value in (None, "")):
+        return True
+    try:
+        text = tomledit.save("\n".join(store.TOML), {(sec, key): value})
+    except Exception as e:  # a value that isn't valid toml
+        error.setText(f"Not applied: {e}")
+        error.show()
+        return False
+    app.load_project(toml, app.s.view_commit, text)
+    return True
+
+
+def _edit(app, sec, key, orig, cfg, toml):
+    """Popup to change one value: its input, Cancel and Save."""
+    draft = dict(value=orig)
+    field = _input(app, sec, key, orig, cfg, toml, draft)
+    error = Label("", 12, 400, "#d03238", wrap=True)
+    error.hide()
+    where = f"[{tomledit.title(sec)}] {tomledit.title(key)}" if sec else tomledit.title(key)
+    pick = " Type it, or pick one with the folder icon." if not isinstance(field, Combo) and _is_path(sec, key, orig) else ""
+    dialog = None
+
+    def save():
+        if _save(app, sec, key, orig, toml, draft["value"], error):
+            dialog.close()
+
+    dialog = app.show_dialog(f"Edit {tomledit.title(key)}", f"{where} · {tomledit.describe(sec, key)}{pick}", vbox(field, 8, error),
+                             [("Cancel", "secondary", None), ("Save", "primary", save)])
+    if isinstance(field, LineEdit):
+        field.returnPressed.connect(save)
+    field.setFocus()
+
+
+def _save_as(app, toml):
+    """Write the edited project file to a new toml (never over the loaded one) and load that file."""
+    src = Path(toml)
+    f, _ = QFileDialog.getSaveFileName(app, "Save edited project file", str(src.with_name(f"{src.stem}_edited.toml")),
+                                       "Laboard project (*.toml)")
+    if not f:
+        return
+    f = Path(f if f.endswith(".toml") else f + ".toml")
+    if f.resolve() == src.resolve():
+        app.status(f"Not saved: {src.name} is the loaded project file; it is never overwritten. Choose another name.")
+        return
+    f.write_text("\n".join(store.TOML) + "\n")
+    app.load_project(str(f))
+
+
+def _hidden(sec, key, cfg):
+    """Rows that don't apply to what the file chose: Table unless Type = DB, [Prediction] Format unless Type = Folder."""
+    s, k = tomledit.canon(sec), key.lower()
+    kind = str(cfg.get(s, {}).get("type") or "").lower()
+    return (k == "table" and s in ("data", "prediction") and kind != "db") or (s == "prediction" and k == "format" and kind != "folder")
+
+
+def _fields(app, toml):
+    """Every value of the project file, one row each with an Edit button that opens ``_edit``."""
+    try:
+        text = "\n".join(store.TOML)
+        sections, cfg = tomledit.fields(text), tomledit.normalize(tomledit.parse(text))
+    except Exception as e:
+        return vbox(Label(f"Can't read the project file: {e}", 13, 400, "mute", wrap=True), margins=(24, 0, 24, 0))
+    body = vbox(margins=(24, 0, 24, 0))
+    for sec, items in sections:
+        if tomledit.canon(sec) == "db" and cfg.get("project", {}).get("db") is not True:  # only with [Project] DB = true
+            continue
+        body.addSpacing(10)
+        body.addWidget(Label(f"[{tomledit.title(sec)}]" if sec else "Top level", 14, 600, mono=bool(sec), lh=22))
+        body.addSpacing(4)
+        for key, orig in items:
+            if _hidden(sec, key, cfg):
+                continue
+            name = Label(tomledit.title(key), 13.5, 400, "body", mono=True)
+            name.setFixedWidth(150)
+            value = Label(breakable(_show(orig)), 13.5, 400, "mute" if orig is None else "ink", mono=True, wrap=True)
+            value.setMinimumHeight(ROW_H)
+            for w in (name, value):
+                set_tip(w, tomledit.title(f"{sec}.{key}" if sec else key), tomledit.describe(sec, key))
+            edit = Button("Edit", on_click=lambda _checked=False, s=sec, k=key, o=orig: _edit(app, s, k, o, cfg, toml))
+            body.addLayout(hbox(name, 12, (value, 1), 12, edit, margins=(0, 6, 0, 6), align=Qt.AlignmentFlag.AlignVCenter))
+            body.addWidget(HLine())
+    return body
+
+
+def _keep_scroll(app, scroll):
+    """``scroll``, put back where the page was before a re-render (Edit → Save reloads the project and rebuilds
+    the page) and remembering where it is now in ``app.s.setting_scroll``."""
+    bar = scroll.verticalScrollBar()
+    want = app.s.setting_scroll
+    state = dict(done=not want)
+
+    def ranged(_lo, hi):  # the height is only known once the page is laid out
+        if not state["done"] and hi > 0:
+            bar.setValue(min(want, hi))
+            state["done"] = hi >= want
+
+    def moved(value):
+        if state["done"]:
+            app.s.setting_scroll = value
+
+    bar.rangeChanged.connect(ranged)
+    bar.valueChanged.connect(moved)
+    QTimer.singleShot(500, lambda: state.update(done=True))  # page shorter than before: stop waiting for the height
+    return scroll
 
 
 def build(app):
@@ -58,10 +231,19 @@ def build(app):
         pad=(32, 28, 32, 28))
 
     name = os.path.basename(path) or "Project file"
-    preview = vbox(hbox(Label(name, 16, 600, lh=24), "stretch", Label("Read-only preview", 12, 400, "mute"),
-                        margins=(24, 4, 24, 10)), margins=(0, 14, 0, 14))
-    for row in _toml_lines(store.TOML):
-        preview.addLayout(row)
+    view = app.s.toml_view if store.TOML else "text"
+    modes = Segmented([("fields", "Fields"), ("text", "Text")], view, lambda k: app.set(toml_view=k),
+                      size=12, pad=(4, 12)) if store.TOML else Label("", 12)
+    edited = store.PROJECT.get("edited")
+    note = Label(f"Edited · {name} on disk is unchanged · Load to go back", 12, 400, "mute", wrap=True) if edited else None
+    save = Button("Save Changed", "primary", on_click=lambda: _save_as(app, path)) if edited else None
+    preview = vbox(hbox(Label(name, 16, 600, lh=24), 12, (note, 1) if note else "stretch", 12, save, 8 if save else 0, modes,
+                        margins=(24, 4, 24, 10), align=Qt.AlignmentFlag.AlignVCenter), margins=(0, 14, 0, 14))
+    if view == "fields":
+        preview.addLayout(_fields(app, path))
+    else:
+        for row in _toml_lines(store.TOML):
+            preview.addLayout(row)
     if not store.TOML:
         none = Label("No project file loaded.", 13, 400, "mute")
         none.setContentsMargins(24, 0, 24, 0)
@@ -84,4 +266,4 @@ def build(app):
     lower = Flow()  # the Detected / Appearance column moves under the preview when the centre is narrow
     lower.add(Box(bg="surf", radius=16, layout=preview), 420, 6)
     lower.add(vbox(card(det, pad=(24, 20, 24, 20)), 12, look, "stretch"), 340, 5)
-    return Scroll(wrap(vbox(load, 12, lower, "stretch")))
+    return _keep_scroll(app, Scroll(wrap(vbox(load, 12, lower, "stretch"))))

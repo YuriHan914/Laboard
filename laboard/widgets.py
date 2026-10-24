@@ -2,7 +2,8 @@
 import itertools
 import re
 
-from PyQt6.QtCore import QEvent, QObject, QPointF, QRect, QRectF, QSize, Qt, pyqtSignal
+from PyQt6 import sip
+from PyQt6.QtCore import QEvent, QObject, QPointF, QRect, QRectF, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QFontMetrics, QPainter, QPainterPath, QPen
 from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import (QApplication, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLayout, QLineEdit, QPushButton,
@@ -175,6 +176,79 @@ def elided(text, *args, **kw):
     lab = Label(text, *args, elide=True, **kw)
     lab.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
     return lab
+
+
+class Tip(QWidget):
+    """Hover bubble: a rounded ink rectangle with Wise-green text (DESIGN-wise's ink / green pairing, as on
+    card-feature-dark). One shared window; ``set_tip`` attaches it to a widget instead of a plain tooltip."""
+
+    WIDTH, RADIUS = 360, 12  # text width; rounded.md
+    _shared = None
+
+    def __init__(self):
+        super().__init__(None, Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)  # only the rounded rectangle is drawn
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self.title = Label("", 13, 600, theme.WISE_GREEN, mono=True)
+        self.body = Label("", 13, 400, theme.WISE_GREEN, wrap=True)
+        self.body.setFixedWidth(self.WIDTH)
+        self.setLayout(vbox(self.title, 4, self.body, margins=(16, 12, 16, 14)))
+        self.timer = QTimer(self, singleShot=True, interval=15000, timeout=self.hide)
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        # on the dark theme the page is ink too: a hairline keeps the bubble's edge visible
+        p.setPen(QPen(qc(T.grid), 1) if theme.current == "dark" else Qt.PenStyle.NoPen)
+        p.setBrush(qc(theme.INK))
+        p.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), self.RADIUS, self.RADIUS)
+
+    @classmethod
+    def show_at(cls, pos, title, text):
+        """Show below-right of ``pos`` (global), kept on its screen."""
+        tip = cls._shared = cls._shared or cls()
+        tip.title.setText(title)
+        tip.title.setVisible(bool(title))
+        tip.body.setText(text)
+        tip.adjustSize()
+        x, y = pos.x() + 12, pos.y() + 18
+        screen = QApplication.screenAt(pos)
+        if screen:
+            area = screen.availableGeometry()
+            x = max(area.left(), min(x, area.right() - tip.width()))
+            y = y if y + tip.height() <= area.bottom() else pos.y() - tip.height() - 8
+        tip.move(x, y)
+        tip.update()
+        tip.show()
+        tip.timer.start()
+
+    @classmethod
+    def hide_tip(cls, *_):
+        if cls._shared is not None and not sip.isdeleted(cls._shared):  # gone already while the app quits
+            cls._shared.hide()
+
+
+class _TipFilter(QObject):
+    def eventFilter(self, obj, e):
+        t = e.type()
+        if t == QEvent.Type.ToolTip and getattr(obj, "_tip", None):
+            Tip.show_at(e.globalPos(), *obj._tip)
+            return True  # instead of Qt's plain tooltip
+        if t in (QEvent.Type.Leave, QEvent.Type.MouseButtonPress, QEvent.Type.Hide):
+            Tip.hide_tip()
+        return False
+
+
+_tip_filter = None
+
+
+def set_tip(widget, title, text):
+    """Show ``title`` / ``text`` in a ``Tip`` bubble while the mouse rests on ``widget``."""
+    global _tip_filter
+    _tip_filter = _tip_filter or _TipFilter()
+    widget._tip = (title, text)
+    widget.installEventFilter(_tip_filter)
+    widget.destroyed.connect(Tip.hide_tip)  # a page re-render deletes the widget without a Leave
 
 
 class Pill(QLabel):

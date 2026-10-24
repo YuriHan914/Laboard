@@ -77,7 +77,7 @@ def build(app):
                     Label(f"Read from source at launch · {files}", 13, 400, "body", rich=True, wrap=True)), 240)
     hp_top.add(hbox(Segmented([("on", "Show source"), ("off", "Values only")], "on" if show_src else "off",
                               lambda k: app.set(show_src=k == "on")), 16,
-                    Button("Re-read", on_click=lambda: app.load_project(store.PROJECT["toml"])),
+                    Button("Re-read", on_click=lambda: app.load_project(store.PROJECT["toml"], text=app.toml_text)),
                     align=Qt.AlignmentFlag.AlignVCenter), stretch=0)
     hp_head = card(hp_top, pad=(24, 16, 24, 16))
     # two masonry-ish columns, like a CSS grid with align-items:start; one column when narrow

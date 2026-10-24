@@ -27,14 +27,16 @@ NEGATIVE_BG = "#320707"
 ACCENT_ORANGE = "#ffc091"
 ACCENT_CYAN = "#38c8ff"
 
-# Theme palettes ([data-theme] blocks in the prototype)
+# Theme palettes ([data-theme] blocks in the prototype). ``stage``: behind images and the model graph
 PALETTES = {
     "light": dict(bg="#e8ebe6", surf="#ffffff", surf2="#e8ebe6", ink="#0e0f0c", body="#454745",
                   mute="#868685", line="#e8ebe6", sel="#e2f6d5", selfg="#0e0f0c", brand="#0e0f0c",
-                  tab="#0e0f0c", tabfg="#ffffff", grid="#d4d8d1", c2="#38c8ff", c3="#b86700"),
+                  tab="#0e0f0c", tabfg="#ffffff", grid="#d4d8d1", c2="#38c8ff", c3="#b86700",
+                  stage="#ffffff"),
     "dark": dict(bg="#0e0f0c", surf="#1a1b18", surf2="#262724", ink="#e8ebe6", body="#b4b8b1",
                  mute="#868685", line="#2a2b28", sel="#163300", selfg="#9fe870", brand="#9fe870",
-                 tab="#e8ebe6", tabfg="#0e0f0c", grid="#30312e", c2="#38c8ff", c3="#ffc091"),
+                 tab="#e8ebe6", tabfg="#0e0f0c", grid="#30312e", c2="#38c8ff", c3="#ffc091",
+                 stage="#0e0f0c"),
 }
 
 

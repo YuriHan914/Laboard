@@ -43,8 +43,8 @@ GPU = dict(name="", rows=[])
 RESULT_FILES = []  # (file label, EXT, size, folder under paths.results; "" for the top level)
 RESULT_PATHS = {}  # file label → absolute path
 RESULT_ROOT = ""
-# [labels] result files: source (folder under results) → dict(file, rel, label_col, shows={key: column},
-# by_path={data path: dict(label, values={key: value})}, by_name={file name: same})
+# [labels] result files: source (folder under results) → dict(file, rel, shows={key: column},
+# by_path={data path: dict(values={key: value})}, by_name={file name: same})
 INFERENCE = {}
 
 # ---------------------------------------------------------------- Setting

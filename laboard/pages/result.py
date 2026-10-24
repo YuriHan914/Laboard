@@ -253,7 +253,7 @@ class ResultPage(Scroll):
             body.addWidget(extra, 1)
         if kind == "image":
             st = Stage(sel, parsed, "none", path=str(path), radius=16)
-            box = Box(bg="#ffffff", radius=16, border=f"1px solid {T.line}", layout=vbox(st, margins=(1, 1, 1, 1)))
+            box = Box(bg="stage", radius=16, border=f"1px solid {T.line}", layout=vbox(st, margins=(1, 1, 1, 1)))
             box.setMinimumHeight(640)
             body.addWidget(box, 1)
         return body
@@ -261,12 +261,12 @@ class ResultPage(Scroll):
     def _text(self, lines):
         log = vbox(margins=(22, 18, 22, 18))
         for i, t in enumerate(lines, 1):
-            color = "#b86700" if "WARN" in t else "#d03238" if "ERROR" in t or "Traceback" in t else "#0e0f0c"
+            color = "c3" if "WARN" in t else "#d03238" if "ERROR" in t or "Traceback" in t else "ink"  # c3: #b86700 light
             safe = t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace(" ", "&nbsp;")
             log.addWidget(Label(f"<span style='color:#868685'>{i:<5}</span>{safe}", 13, mono=True,
                                 color=color, rich=True, lh=22, select=True))
         log.addStretch(1)
-        return Box(bg="#ffffff", radius=16, border=f"1px solid {T.line}", layout=log)
+        return Box(bg="stage", radius=16, border=f"1px solid {T.line}", layout=log)
 
     SELECTED = f"3px solid #054d28" #{WARNING}
     UNSELECTED = "3px solid transparent"  # same width, so selecting doesn't shift the chart

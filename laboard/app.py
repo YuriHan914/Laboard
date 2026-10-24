@@ -84,12 +84,14 @@ def in_filter(c, kind):
 
 
 class Dialog(QWidget):
-    """Modal card over a dimmed window (below the frameless title bar): icon, title, text, one dismiss button.
+    """Modal card over a dimmed window (below the frameless title bar): icon, title, text, an optional ``body``
+    widget (e.g. an input) and buttons: ``actions`` [(text, variant, on_click)], by default one dismiss button.
+    An on_click of None closes the dialog.
 
     A child of the main window, so it covers whatever page is rendered; MainWindow.render keeps it on top.
     """
 
-    def __init__(self, win, title, text, button="Cancel"):
+    def __init__(self, win, title, text, button="Cancel", body=None, actions=None):
         super().__init__(win)
         self.win = win
         card = Box(bg="surf", radius=24)
@@ -97,10 +99,12 @@ class Dialog(QWidget):
         card.setGraphicsEffect(QGraphicsDropShadowEffect(blurRadius=64, offset=QPointF(0, 24), color=QColor(14, 15, 12, 89)))
         icon = Box(bg="surf2", radius=22, layout=hbox(InfoIcon(22), align=Qt.AlignmentFlag.AlignCenter))
         icon.setFixedSize(44, 44)
-        words = vbox(Label(title, 22, 600, spacing=-0.4, lh=28), 6, Label(text, 14, 400, "body", wrap=True))
-        close = Button(button, "tertiary", on_click=self.close)
-        card.setLayout(vbox(hbox(vbox(icon, "stretch"), 16, (words, 1), margins=(28, 28, 28, 0)),
-                            hbox("stretch", close, margins=(28, 24, 28, 28))))
+        words = vbox(Label(title, 22, 600, spacing=-0.4, lh=28), 6, Label(text, 14, 400, "body", wrap=True),
+                     *((16, body) if body is not None else ()))
+        buttons = hbox("stretch", spacing=8, margins=(28, 24, 28, 28))
+        for text_, variant, on_click in actions or [(button, "tertiary", None)]:
+            buttons.addWidget(Button(text_, variant, on_click=on_click or self.close))
+        card.setLayout(vbox(hbox(vbox(icon, "stretch"), 16, (words, 1), margins=(28, 28, 28, 0)), buttons))
         self.setLayout(vbox("stretch", hbox("stretch", card, "stretch"), "stretch"))
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         win.installEventFilter(self)
@@ -234,6 +238,7 @@ class MainWindow(QMainWindow):
         self.setMinimumHeight(760)  # width: the top bar up to the Setting tab, which leaves the centre CENTER_MIN
         self._status_msg = None
         self.dialog = None
+        self.toml_text = None  # the loaded project file as edited in Setting, or None: as on disk
         self.side_widths = {}  # side panel widths the user dragged, by SideHandle key, as shares of side_scale()
         self.handles, self.page, self.center_min = [], None, CENTER_MIN
         self.top_min = 0  # the top bar's minimum width, which is the window's
@@ -249,6 +254,8 @@ class MainWindow(QMainWindow):
         return dict(
             hist_filter="all", open_commit=_first(store.COMMITS) or None, smooth=0.6, split_filter="all",
             view_mode="raw", show_src=True, zoom=None, pending_toml=None, pt_view="inferred", log_filter="all",
+            toml_view="fields",  # Setting: project file shown as fields or as text
+            setting_scroll=0,  # Setting: how far the page is scrolled, kept when Edit → Save reloads it
             table_page={},  # Result csv table: page shown, by file
             table_open=set(),  # big Result csv tables the user unfolded, by file
             chart_sel={},  # Result charts the user ticked: (file, tag) -> colour slot in the comparison
@@ -267,11 +274,12 @@ class MainWindow(QMainWindow):
         self.task = store.DASH.get("task", "")
         self.setWindowTitle(f"Laboard — {store.PROJECT['name']} — {store.PROJECT['toml']}" if store.PROJECT else "Laboard")
 
-    def load_project(self, path, commit=None):
-        """Load ``path``; with ``commit``, show the project as of that commit (the repository itself is only read)."""
+    def load_project(self, path, commit=None, text=None):
+        """Load ``path``; with ``commit``, show the project as of that commit (the repository itself is only read).
+        ``text``: the project file's content edited in Setting, used instead of the file (which isn't written)."""
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            notes = project.load(path, commit)
+            notes = project.load(path, commit, text)
         except Exception as e:  # missing file, bad toml, unexpected layout: store still holds the previous project
             self._status_msg = f"Could not load {path}{' at ' + commit if commit else ''}: {e}"
             self.render()
@@ -293,10 +301,18 @@ class MainWindow(QMainWindow):
             if old.folder in store.DATA_FOLDERS and old.sel["data"] in store.DATA_FOLDERS[old.folder]["files"]:
                 self.s.folder, self.s.sel["data"] = old.folder, old.sel["data"]
         self._toml = store.PROJECT["toml"]
+        self.toml_text = text
         self.s.view_commit = commit
         head = f"Showing {commit} · read-only snapshot" if commit else f"Loaded {path}"
         self._status_msg = " · ".join([head, *notes])
         self.render()
+
+    def show_dialog(self, title, text, body=None, actions=None):
+        """Open a modal ``Dialog`` (see there) and return it."""
+        self.dialog = Dialog(self, title, text, body=body, actions=actions)
+        self.dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self.dialog.open()
+        return self.dialog
 
     def show_no_project(self):
         self.dialog = Dialog(self, "Load a project file", "No project is loaded yet. Go to Setting, open Load project file "
@@ -306,7 +322,7 @@ class MainWindow(QMainWindow):
 
     def show_commit(self, commit):
         """Show every page as of ``commit`` (None: the latest)."""
-        self.load_project(store.PROJECT["toml"], commit)
+        self.load_project(store.PROJECT["toml"], commit, self.toml_text)
 
     def side_scale(self):
         """What side panel shares are of: the design width, so a share is a fixed size in px (a panel doesn't grow
@@ -413,7 +429,7 @@ class MainWindow(QMainWindow):
         if r.returncode:
             self.status(f"git fetch {remote} failed: {r.stderr.strip()[:160]}")
             return
-        self.load_project(P["toml"], self.s.view_commit)
+        self.load_project(P["toml"], self.s.view_commit, self.toml_text)
 
     def status(self, msg):
         self._status_msg = msg
