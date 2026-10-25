@@ -36,6 +36,7 @@ Task가 비어 있으면 [이전 형식](#이전-형식-task가-비어-있을-�
   `[Data] Type is not set`이 뜹니다.
 - **읽는 양:** 출처와 상관없이 최대 200,000개 행(파일)까지 읽습니다.
 - **정답 출처:** 정답은 항상 `[Label]`에서만 가져옵니다. 예측 결과 파일에 레이블 열이 있어도 정답으로 쓰지 않습니다.
+- **필수 열과 라벨 저장 형식:** [데이터 형식: 필수 열과 라벨 format](#데이터-형식-필수-열과-라벨-format)을 보세요.
 
 ### Task: 단일 / 다중
 
@@ -46,7 +47,8 @@ Task = "classification"                                   # 단일 task
 Task = "classification, segmentation, object detection"   # 다중 task
 ```
 
-- **쓸 수 있는 task:** `classification`, `object detection`, `segmentation`, `anomaly detection`, `pose-estimation`.
+- **쓸 수 있는 task:** `classification`, `object detection`(또는 `detection`), `segmentation`, `instance segmentation`,
+  `semantic segmentation`, `panoptic segmentation`, `anomaly detection`, `pose-estimation`(또는 `keypoints`).
   대소문자, 공백, `_`, `-`는 구분하지 않습니다(`Object_detection`도 됨). 모르는 이름은 알림을 띄우고 건너뜁니다.
 - **원본 데이터는 하나:** `[Data]`는 모든 task가 같이 씁니다. task마다 다른 것은 정답(`[Label]`)과 예측(`[Prediction]`)입니다.
 - **폴더 구조:** `[Path]`의 Models / Hyperparameter / Results 아래에 task 이름 폴더를 두면 task별로 나눠 봅니다.
@@ -253,9 +255,18 @@ Type = DB / CSV에서 각 의미의 열을 이름으로 찾습니다(대소문�
 | `File_path` | 선택 | – | 선택 | CSV: 라벨 csv(비우면 `[Data]` csv) · Folder: 라벨 폴더들이 있는 폴더(비우면 데이터 폴더) |
 | `Table` | – | 선택 | – | 라벨 테이블(비우면 `[Data]` 테이블) |
 | `<Task>_Label` | 열 이름 | 열 이름 | 아래 참고 | `Classification_Label`, `Segmentation_Label`, `Object_detection_Label`, `Anomaly_detection_Label`, `Pose_estimation_Label` |
+| `Label` | 열 이름 | 열 이름 | – | `<Task>_Label`이 없는 모든 task의 정답 열 |
 
 - **CSV / DB:** `<Task>_Label`은 그 task의 정답이 든 열입니다. 라벨 csv·테이블의 원본 경로 열(`Raw`, 비우면
   `[Data] Raw`)로 데이터 파일과 맞춥니다. 라벨이 `[Data]`와 같은 csv·테이블에 있으면 그대로 씁니다.
+- **파일 하나가 task마다 한 행:** csv·테이블에 task 열(`task` 또는 `object`)이 있고 파일 하나가 task마다 한 행씩
+  나오면, 각 task는 task 값이 같은 행에서 정답을 읽고 `[Data]`에는 파일이 한 번만 나옵니다. 이런 테이블은 보통
+  `Label = "label"` 하나면 됩니다.
+- **json 정답**(coco format, `Src/raw_to_csv`가 만드는 형식)은 Data 페이지에서 이미지 위에 그립니다:
+  `["cat", "dog"]`(클래스 이름), `[{"category", "bbox": [x, y, w, h]}]`(박스), `[{"category", "segmentation"}]`
+  (polygon 또는 RLE), `[{"category", "bbox", "keypoints"}]`(keypoint, 17개면 coco skeleton도), `{"mask_path",
+  "segments_info"}`(coco panoptic png). 글자로는 `20 objects · chair ×5, vase ×4`처럼 요약해 보여 줍니다. json
+  예측도 Predict 창에 같은 방식으로 그립니다.
 - **Folder:**
   - classification은 `[Data] Type = "Folder"`의 `split/<class>/파일` 구조에서 정답을 가져옵니다. 값은 아무것이나 됩니다.
   - 다른 task의 `<Task>_Label`은 라벨 파일이 든 폴더입니다(`File_path` 기준 상대 경로 또는 절대 경로). 데이터
@@ -275,11 +286,130 @@ Classification_Label = "label"
 Segmentation_Label = "seg_label"
 Object_detection_Label = "obj_label"
 
+[Label]                                 # 다중 task, 파일 하나가 task마다 한 행 (task 열 + json label 열)
+Type = "CSV"
+File_path = "/mnt/data/Dataset/COCO/COCO_2017_dataset.csv"
+Label = "label"
+
 [Label]                                 # 다중 task, Folder
 Type = "Folder"
 File_path = "/mnt/data/Dataset/semiconductor_waifer_defect_classification"
 Classification_Label = "label"          # 클래스 폴더
 Segmentation_Label = "seg_label"        # File_path/seg_label/ 아래 라벨 파일
+```
+
+## 데이터 형식: 필수 열과 라벨 format
+
+`[Data] Type`이 `CSV` 또는 `DB`일 때 csv·테이블이 갖춰야 할 열과, 라벨 열에 값을 저장하는 형식입니다.
+`Folder`는 폴더 구조로 읽으므로 열이 필요 없습니다([Type = Folder](#type--folder)).
+
+### 필수 열과 선택 열
+
+| 열 | 필요 | 이름 (대소문자 무시) | 값 |
+| --- | --- | --- | --- |
+| 파일 경로 | **필수** | `[Data] Raw`에 적은 이름, 없으면 `file_path`, `data_path`, `path`, `image`, `filename` 등([열 찾기](#열-찾기)) | 원본 파일 경로. DB는 **절대 경로**, CSV는 절대 경로 또는 csv 파일 위치 기준 상대 경로 |
+| 라벨 | 정답을 보려면 필수 | `[Label] Label` 또는 `<Task>_Label`에 적은 이름 (예: `label`) | 아래 [라벨 값 format](#라벨-값-format) |
+| task | 파일 하나를 task마다 한 행으로 저장할 때 **필수** | `task`, `object` | `[Project] Task`의 task 이름 (예: `classification`, `detection`) |
+| split | 선택 (권장) | `type`, `status`, `split`, `subset`, `set` | `train` / `valid`(`val`, `validation`) / `test`. 없거나 다른 값이면 Unused |
+| 생성일 | 선택 | `create_date`, `created_at`, `created`, `date`, `timestamp` | ISO 형식 `2024-01-05 10:00:00` 또는 DB의 timestamp. 없으면 파일 수정 시각을 씀 |
+| 학습 여부 | 선택 | `trained`, `used` | `true` / `false` (`1`, `yes`도 됨) |
+| id | 선택 | `id` | File info에 표시 |
+
+- **경로 열이 없거나 값이 경로처럼 보이지 않으면** 데이터를 읽지 않고 `no file-path column found` 알림이 뜹니다.
+- **경로가 빈 행**은 건너뜁니다.
+- **라벨 열이 없으면** 파일은 보이지만 정답이 비어 있고 `[Label] no <Task>_Label` 알림이 뜹니다.
+
+### 테이블 모양: 파일당 한 행 / task당 한 행
+
+라벨은 두 가지 모양으로 저장할 수 있습니다.
+
+| 모양 | 행 | 라벨 열 | `[Label]` 설정 |
+| --- | --- | --- | --- |
+| 파일당 한 행 | 파일 하나 = 한 행 | task마다 다른 열 (예: `cls_label`, `det_label`) | `Classification_Label = "cls_label"`, `Object_detection_Label = "det_label"` |
+| task당 한 행 | 파일 하나 × task 하나 = 한 행 | 열 하나 (예: `label`) + task 열 | `Label = "label"` |
+
+- **task당 한 행으로 인식하는 조건:** task 열이 있고 같은 파일 경로가 여러 행에 나올 때입니다. 이때 각 task는
+  task 값이 같은 행에서 라벨을 읽고, `[Data]`에는 파일이 한 번만 나옵니다.
+- **task 값:** `[Project] Task`의 이름과 같아야 합니다. 대소문자, 공백, `_`, `-`는 무시하고(`instance_segmentation` =
+  `instance segmentation`), `detection`은 `object detection`, `keypoints`는 `pose-estimation`으로 읽습니다.
+- **split·생성일:** 파일의 첫 행 값을 씁니다. 같은 파일의 행끼리 값이 같게 저장하세요.
+
+### 라벨 값 format
+
+라벨 값은 클래스 이름 같은 **일반 문자열**이거나 **coco format json**입니다. json이면 Data 페이지에서 이미지
+위에 그리고, 글자로는 `20 objects · chair ×5, vase ×4`처럼 요약해 보여 줍니다. 예측 값(`[Prediction] Predict`)도
+같은 형식이면 Predict 창에 같은 방식으로 그립니다.
+
+| task | 형식 | 예 |
+| --- | --- | --- |
+| classification | 문자열, 또는 클래스 이름 list | `cat` · `["cat", "dog"]` |
+| object detection | `[{"category", "bbox"}]` | `[{"category": "cat", "bbox": [10, 20, 100, 80]}]` |
+| segmentation (instance / semantic) | `[{"category", "segmentation"}]` | `[{"category": "cat", "segmentation": [[10, 20, 110, 20, 60, 100]]}]` |
+| pose-estimation | `[{"category", "bbox", "keypoints"}]` | `[{"category": "person", "bbox": [5, 5, 50, 120], "keypoints": [30, 12, 2, 0, 0, 0, …]}]` |
+| panoptic segmentation | `{"mask_path", "segments_info"}` | `{"mask_path": "/data/panoptic/0001.png", "segments_info": [{"id": 3226956, "category": "person", "bbox": [413, 158, 53, 138]}]}` |
+
+- **좌표:** 모두 이미지 픽셀 좌표이고, 원점은 왼쪽 위, x는 오른쪽, y는 아래쪽입니다.
+- **bbox:** `[x, y, w, h]` (왼쪽 위 꼭짓점과 폭·높이). `[x1, y1, x2, y2]`가 아닙니다.
+- **segmentation:** polygon list `[[x1, y1, x2, y2, …], …]` (객체 하나가 polygon 여러 개일 수 있음, 점 3개 이상).
+  또는 압축하지 않은 RLE `{"counts": [...], "size": [h, w]}` (열 우선 순서, 0의 run부터 시작). 압축 RLE(문자열
+  `counts`)는 그리지 않습니다.
+- **keypoints:** `[x, y, v]`를 keypoint 수만큼 이어 붙인 list. `v = 0`인 점은 그리지 않습니다. 17개면 coco 사람
+  skeleton 선도 그립니다.
+- **panoptic:** `mask_path`는 coco panoptic png의 **절대 경로**입니다. png의 픽셀 값 `R + 256·G + 256²·B`가 segment
+  `id`이고, `segments_info`의 각 항목에 `id`와 `category`가 있어야 그 영역을 category 색으로 칠합니다. `bbox`가 있으면
+  그 가운데에 이름을 표시합니다.
+- **category:** 아무 문자열이나 됩니다. 같은 이름은 항상 같은 색으로 그립니다. Data 페이지의 클래스 목록은 모든
+  라벨의 category를 모은 것입니다.
+- **json이 아닌 값:** `[` 또는 `{`로 시작하지 않거나 json으로 읽히지 않는 값은 그대로 글자로만 보여 줍니다.
+
+### 저장할 때 주의
+
+- **반드시 json으로 저장:** Python에서 `str(list)`로 저장하면 `['cat', 'dog']`처럼 작은따옴표가 들어가 json이
+  아니게 되고, 그리지 않고 글자로만 보입니다. `json.dumps(label)`로 바꾼 뒤 저장하세요.
+- **CSV:** json 안의 `"`와 `,` 때문에 값을 따옴표로 감싸고 `"`를 `""`로 써야 합니다. pandas `to_csv`나 Python
+  `csv` 모듈로 쓰면 자동으로 처리됩니다.
+- **DB:** 라벨 열은 `JSONB`(권장) 또는 `TEXT`로 만듭니다. `JSONB`는 DB가 json 형식을 검사하고 `label->0->'bbox'`처럼
+  조회할 수도 있습니다.
+
+### 예시
+
+task당 한 행 csv와 그에 맞는 설정입니다(`Src/raw_to_csv`가 만드는 형식).
+
+```csv
+file_path,label,task,type,create_date
+/data/img/0001.jpg,"[""cat"", ""dog""]",classification,train,2024-01-05 10:00:00
+/data/img/0001.jpg,"[{""category"": ""cat"", ""bbox"": [10, 20, 100, 80]}]",detection,train,2024-01-05 10:00:00
+/data/img/0002.jpg,"[""dog""]",classification,valid,2024-01-06 09:30:00
+```
+
+```toml
+[Project]
+Task = "classification, detection"
+
+[Data]
+Type = "CSV"
+File_path = "/data/dataset.csv"
+Raw = "file_path"
+
+[Label]
+Type = "CSV"
+File_path = "/data/dataset.csv"
+Label = "label"
+```
+
+파일당 한 행이면 task마다 라벨 열을 따로 둡니다.
+
+```csv
+file_path,type,cls_label,det_label
+/data/img/0001.jpg,train,cat,"[{""category"": ""cat"", ""bbox"": [10, 20, 100, 80]}]"
+```
+
+```toml
+[Label]
+Type = "CSV"
+File_path = "/data/dataset.csv"
+Classification_Label = "cls_label"
+Object_detection_Label = "det_label"
 ```
 
 ## 예측 설정 (`[Prediction]`)

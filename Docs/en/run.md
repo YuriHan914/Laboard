@@ -11,7 +11,6 @@ The Hyperparameter page shows one training run's hyperparameter set:
 - where it lives and which commit last touched it
 - how far training has got
 - every hyperparameter in its config files, with the file each value came from
-- the state of the GPU
 
 ## What counts as a hyperparameter set
 
@@ -56,7 +55,7 @@ The config here means files whose names contain `config`, `args` or `hparams`.
 ### Header
 
 - **Read from source at launch** lists the config files that were read: the first four, then `+N more`.
-- **Re-read** loads the project file again. Use it to pick up changes to configs or to the GPU state.
+- **Re-read** loads the project file again. Use it to pick up changes to configs.
 
 ### Sections
 
@@ -73,14 +72,3 @@ per row, as wide as the column.
 - **Pages:** a card with more than 20 rows shows them 20 at a time. **Rows 1–20 of N** and **Previous / Next**
   sit under the table; turning a page keeps the page's scroll position, and each card keeps its page until you
   leave the Hyperparameter page. Up to 2,000 rows are read from one file.
-
-## GPU
-
-This card reads GPU 0 from `nvidia-smi`:
-
-- **Utilization:** a percentage, with a bar.
-- **Memory:** used / total in GB, with a bar.
-- **Temperature:** in °C, with a bar.
-
-The GPU is read when the project loads, not continuously; click **Re-read** to refresh it. Without
-`nvidia-smi` the card says *No GPU detected*.

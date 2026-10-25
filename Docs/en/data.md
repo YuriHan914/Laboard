@@ -37,6 +37,7 @@ With an empty Task, the [older format](#older-format-task-is-empty) is used.
 - **How much is read:** up to 200,000 rows (files), whatever the source.
 - **Where the ground truth comes from:** always `[Label]`. A label column in a prediction result file is never
   used as the ground truth.
+- **Required columns and label formats:** see [Data format: required columns and label values](#data-format-required-columns-and-label-values).
 
 ### Task: single / multi
 
@@ -47,7 +48,8 @@ Task = "classification"                                   # a single task
 Task = "classification, segmentation, object detection"   # several tasks
 ```
 
-- **Tasks:** `classification`, `object detection`, `segmentation`, `anomaly detection`, `pose-estimation`. Case,
+- **Tasks:** `classification`, `object detection` (or `detection`), `segmentation`, `instance segmentation`,
+  `semantic segmentation`, `panoptic segmentation`, `anomaly detection`, `pose-estimation` (or `keypoints`). Case,
   spaces, `_` and `-` don't matter (`Object_detection` works). An unknown name is noted and skipped.
 - **One raw data source:** `[Data]` is shared by every task; what differs per task is the ground truth
   (`[Label]`) and the predictions (`[Prediction]`).
@@ -258,9 +260,18 @@ The ground truth picks its source with `Type` (`CSV` / `DB` / `Folder`) too, wit
 | `File_path` | optional | – | optional | CSV: the labels csv (empty: `[Data]`'s) · Folder: the folder the label folders are in (empty: the data folder) |
 | `Table` | – | optional | – | The labels table (empty: `[Data]`'s) |
 | `<Task>_Label` | column | column | see below | `Classification_Label`, `Segmentation_Label`, `Object_detection_Label`, `Anomaly_detection_Label`, `Pose_estimation_Label` |
+| `Label` | column | column | – | The column of every task that has no `<Task>_Label` of its own |
 
 - **CSV / DB:** `<Task>_Label` is the column with that task's ground truth. Rows are matched to the data files by
   the raw-file path column (`Raw`, empty: `[Data] Raw`). Labels in the `[Data]` csv or table are read from there.
+- **One row per file and task:** when the csv / table has a task column (`task` or `object`) and lists a file once
+  per task, each task reads its label from the row whose task matches, and `[Data]` lists each file once. Such a
+  table usually needs only `Label = "label"`.
+- **Json labels** (coco format, as made by `Src/raw_to_csv`) are drawn over the image on the Data page:
+  `["cat", "dog"]` (class names), `[{"category", "bbox": [x, y, w, h]}]` (boxes),
+  `[{"category", "segmentation"}]` (polygons or RLE), `[{"category", "bbox", "keypoints"}]` (keypoints, with the
+  coco skeleton for 17 points) and `{"mask_path", "segments_info"}` (a coco panoptic png). Text shows a summary
+  such as `20 objects · chair ×5, vase ×4`. A json prediction is drawn on the Predict pane the same way.
 - **Folder:**
   - classification takes the ground truth from the `split/<class>/file` layout of `[Data] Type = "Folder"`; the
     value can be anything.
@@ -282,11 +293,133 @@ Classification_Label = "label"
 Segmentation_Label = "seg_label"
 Object_detection_Label = "obj_label"
 
+[Label]                                 # several tasks, one row per file and task (task + json label columns)
+Type = "CSV"
+File_path = "/mnt/data/Dataset/COCO/COCO_2017_dataset.csv"
+Label = "label"
+
 [Label]                                 # several tasks, Folder
 Type = "Folder"
 File_path = "/mnt/data/Dataset/semiconductor_waifer_defect_classification"
 Classification_Label = "label"          # the class folders
 Segmentation_Label = "seg_label"        # label files under File_path/seg_label/
+```
+
+## Data format: required columns and label values
+
+The columns a csv / table needs when `[Data] Type` is `CSV` or `DB`, and how to store values in the label column.
+`Folder` is read from the folder layout and needs no columns ([Type = Folder](#type--folder)).
+
+### Required and optional columns
+
+| Column | Needed | Name (any case) | Value |
+| --- | --- | --- | --- |
+| File path | **required** | the one named in `[Data] Raw`, else `file_path`, `data_path`, `path`, `image`, `filename`, … ([Columns](#columns)) | The raw file's path. DB: an **absolute path** · CSV: absolute, or relative to the csv file's folder |
+| Label | required to see the ground truth | the one named in `[Label] Label` or `<Task>_Label` (e.g. `label`) | See [Label values](#label-values) below |
+| Task | **required** when a file has one row per task | `task`, `object` | A task name from `[Project] Task` (e.g. `classification`, `detection`) |
+| Split | optional (recommended) | `type`, `status`, `split`, `subset`, `set` | `train` / `valid` (`val`, `validation`) / `test`. Missing or anything else: Unused |
+| Created | optional | `create_date`, `created_at`, `created`, `date`, `timestamp` | ISO format `2024-01-05 10:00:00`, or a DB timestamp. Missing: the file's modified time |
+| Trained | optional | `trained`, `used` | `true` / `false` (`1`, `yes` work too) |
+| id | optional | `id` | Shown in File info |
+
+- **No file-path column, or values that don't look like paths:** nothing is read and the note
+  `no file-path column found` appears.
+- **Rows with an empty path** are skipped.
+- **No label column:** the files show up without ground truth and the note `[Label] no <Task>_Label` appears.
+
+### Table shape: one row per file / one row per task
+
+Labels can be stored in two shapes.
+
+| Shape | A row is | Label column | `[Label]` setting |
+| --- | --- | --- | --- |
+| One row per file | one file | a column per task (e.g. `cls_label`, `det_label`) | `Classification_Label = "cls_label"`, `Object_detection_Label = "det_label"` |
+| One row per task | one file × one task | one column (e.g. `label`) + the task column | `Label = "label"` |
+
+- **When it counts as one row per task:** the table has a task column and the same file path appears in more than
+  one row. Each task then reads its label from the row with its task value, and `[Data]` lists the file once.
+- **Task values:** must match the names in `[Project] Task`. Case, spaces, `_` and `-` don't matter
+  (`instance_segmentation` = `instance segmentation`); `detection` reads as `object detection` and `keypoints` as
+  `pose-estimation`.
+- **Split and created date:** taken from the file's first row. Store the same values in every row of a file.
+
+### Label values
+
+A label is a **plain string** such as a class name, or **json in coco format**. Json is drawn over the image on the
+Data page and summarised in text, e.g. `20 objects · chair ×5, vase ×4`. Predictions (`[Prediction] Predict`) in
+the same format are drawn on the Predict pane the same way.
+
+| Task | Format | Example |
+| --- | --- | --- |
+| classification | a string, or a list of class names | `cat` · `["cat", "dog"]` |
+| object detection | `[{"category", "bbox"}]` | `[{"category": "cat", "bbox": [10, 20, 100, 80]}]` |
+| segmentation (instance / semantic) | `[{"category", "segmentation"}]` | `[{"category": "cat", "segmentation": [[10, 20, 110, 20, 60, 100]]}]` |
+| pose-estimation | `[{"category", "bbox", "keypoints"}]` | `[{"category": "person", "bbox": [5, 5, 50, 120], "keypoints": [30, 12, 2, 0, 0, 0, …]}]` |
+| panoptic segmentation | `{"mask_path", "segments_info"}` | `{"mask_path": "/data/panoptic/0001.png", "segments_info": [{"id": 3226956, "category": "person", "bbox": [413, 158, 53, 138]}]}` |
+
+- **Coordinates:** image pixels, origin at the top left, x to the right, y down.
+- **bbox:** `[x, y, w, h]` (top-left corner, width, height), not `[x1, y1, x2, y2]`.
+- **segmentation:** a list of polygons `[[x1, y1, x2, y2, …], …]` (an object may have several, each with 3+ points),
+  or uncompressed RLE `{"counts": [...], "size": [h, w]}` (column-major, starting with a run of 0s). Compressed RLE
+  (a string `counts`) isn't drawn.
+- **keypoints:** `[x, y, v]` repeated for each keypoint. Points with `v = 0` aren't drawn; with 17 points the coco
+  person skeleton is drawn too.
+- **panoptic:** `mask_path` is the **absolute path** of a coco panoptic png. A pixel's value `R + 256·G + 256²·B` is
+  its segment `id`; each `segments_info` entry needs `id` and `category` for its area to be filled in the category's
+  colour, and a `bbox` puts the name at its centre.
+- **category:** any string. A name always gets the same colour. The Data page's class list is every category in
+  the labels.
+- **Values that aren't json:** anything that doesn't start with `[` or `{`, or doesn't parse as json, is shown as
+  text only.
+
+### When saving
+
+- **Save real json:** `str(list)` in Python writes `['cat', 'dog']` with single quotes, which isn't json, so it is
+  shown as text and not drawn. Convert with `json.dumps(label)` first.
+- **CSV:** json holds `"` and `,`, so the value must be quoted with `"` doubled to `""`. pandas `to_csv` and Python's
+  `csv` module do this for you.
+- **DB:** make the label column `JSONB` (recommended) or `TEXT`. With `JSONB` the database checks the json and can
+  query inside it, e.g. `label->0->'bbox'`.
+
+### Examples
+
+A one-row-per-task csv and its settings (the format `Src/raw_to_csv` writes):
+
+```csv
+file_path,label,task,type,create_date
+/data/img/0001.jpg,"[""cat"", ""dog""]",classification,train,2024-01-05 10:00:00
+/data/img/0001.jpg,"[{""category"": ""cat"", ""bbox"": [10, 20, 100, 80]}]",detection,train,2024-01-05 10:00:00
+/data/img/0002.jpg,"[""dog""]",classification,valid,2024-01-06 09:30:00
+```
+
+```toml
+[Project]
+Task = "classification, detection"
+
+[Data]
+Type = "CSV"
+File_path = "/data/dataset.csv"
+Raw = "file_path"
+
+[Label]
+Type = "CSV"
+File_path = "/data/dataset.csv"
+Label = "label"
+```
+
+With one row per file, each task has its own label column:
+
+```csv
+file_path,type,cls_label,det_label
+/data/img/0001.jpg,train,cat,"[{""category"": ""cat"", ""bbox"": [10, 20, 100, 80]}]"
+```
+
+```toml
+[Label]
+Type = "CSV"
+File_path = "/data/dataset.csv"
+Classification_Label = "cls_label"
+Object_detection_Label = "det_label"
 ```
 
 ## Prediction setup (`[Prediction]`)

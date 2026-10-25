@@ -145,7 +145,7 @@ Predict_score = "AD_score"
 | --- | --- |
 | `Name` | 상단 바와 Home에 표시할 프로젝트 이름. 비우면 Root 폴더 이름 |
 | `Root` | 프로젝트 git 저장소 폴더. git 기록·브랜치·원격 정보를 여기서 가져옴. 비우면 데이터·`[Path]` 경로 중 첫 번째, 없으면 toml이 있는 폴더 |
-| `Task` | task 하나, 또는 쉼표로 여러 개. `classification`, `object detection`, `segmentation`, `anomaly detection`, `pose-estimation` (대소문자·공백·`_`·`-` 무관). 비우면 [이전 형식](#이전-형식) |
+| `Task` | task 하나, 또는 쉼표로 여러 개. `classification`, `object detection`(`detection`), `segmentation`, `instance segmentation`, `semantic segmentation`, `panoptic segmentation`, `anomaly detection`, `pose-estimation`(`keypoints`) (대소문자·공백·`_`·`-` 무관). 비우면 [이전 형식](#이전-형식) |
 | `DB` | `[Data]`, `[Label]`, `[Prediction]`에서 `Type = "DB"`를 쓰면 `True`. `False`면 DB를 쓰지 않음 |
 
 **`[DB]`** (`[Project] DB = True`일 때)
@@ -189,6 +189,7 @@ Predict_score = "AD_score"
 | `[Label] File_path` | CSV: 라벨 csv(비우면 `[Data]` csv) · Folder: 라벨 폴더들이 있는 폴더 |
 | `[Label] Table` | DB: 라벨 테이블(비우면 `[Data]` 테이블) |
 | `[Label] <Task>_Label` | task별 정답. CSV / DB: 열 이름 · Folder: classification은 클래스 폴더, 다른 task는 라벨 파일 폴더 |
+| `[Label] Label` | CSV / DB: `<Task>_Label`이 없는 모든 task의 정답 열. task 열이 있어 파일 하나가 task마다 한 행인 csv·테이블은 task마다 자기 행을 씁니다 |
 | `[Prediction] Type` | `CSV` / `DB` / `Folder` |
 | `[Prediction] File_path` | CSV: `[Path] Results/<task>` 아래의 결과 파일 이름 / glob · Folder: 예측 파일 폴더 |
 | `[Prediction] Table` | DB: 예측이 들어 있는 테이블 |

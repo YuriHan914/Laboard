@@ -145,7 +145,7 @@ Predict_score = "AD_score"
 | --- | --- |
 | `Name` | Project name shown in the top bar and on Home. Empty: the Root folder's name |
 | `Root` | Folder of the project's git repository; git history, branch and remote come from it. Empty: the first of the data / `[Path]` paths, or the toml's folder |
-| `Task` | One task, or several comma-separated: `classification`, `object detection`, `segmentation`, `anomaly detection`, `pose-estimation` (case, spaces, `_` and `-` don't matter). Empty: the [older format](#older-format) |
+| `Task` | One task, or several comma-separated: `classification`, `object detection` (`detection`), `segmentation`, `instance segmentation`, `semantic segmentation`, `panoptic segmentation`, `anomaly detection`, `pose-estimation` (`keypoints`) (case, spaces, `_` and `-` don't matter). Empty: the [older format](#older-format) |
 | `DB` | `True` when `[Data]`, `[Label]` or `[Prediction]` uses `Type = "DB"`. `False`: no database |
 
 **`[DB]`** (with `[Project] DB = True`)
@@ -189,6 +189,7 @@ it needs, see [Data setup](data.md#data-setup), [Label setup](data.md#label-setu
 | `[Label] File_path` | CSV: the labels csv (empty: `[Data]`'s) · Folder: the folder the label folders are in |
 | `[Label] Table` | DB: the labels table (empty: `[Data]`'s) |
 | `[Label] <Task>_Label` | A task's ground truth. CSV / DB: its column · Folder: the class folders for classification, a label-file folder for other tasks |
+| `[Label] Label` | CSV / DB: the column of every task without its own `<Task>_Label`. A csv / table with one row per file and task (a task column) gives each task its own row |
 | `[Prediction] Type` | `CSV` / `DB` / `Folder` |
 | `[Prediction] File_path` | CSV: result file name / glob under `[Path] Results/<task>` · Folder: the folder of prediction files |
 | `[Prediction] Table` | DB: the table holding the predictions |
