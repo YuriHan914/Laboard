@@ -135,15 +135,4 @@ def build(app):
     for title, file, rows, numbered in sections:
         left.addWidget(_section(app, title, file, rows, numbered))
 
-    gpu = vbox(Label(store.GPU["name"] or "GPU", 16, 600, lh=24), 12)
-    for k, v, pct in store.GPU["rows"]:
-        gpu.addLayout(vbox(hbox(Label(k, 13, 400, "body"), "stretch", Label(v, 13)), 4, Meter(pct, 6), margins=(0, 0, 0, 10)))
-    if not store.GPU["rows"]:
-        gpu.addWidget(Label("nvidia-smi returned nothing", 13, 400, "mute"))
-    right = card(gpu)
-    right.setFixedWidth(360)
-
-    lower = Flow(fill=False)  # the GPU card moves under the hyperparameters when they'd get too narrow
-    lower.add(left, 480)
-    lower.add(right, 360, 0)
-    return Scroll(wrap(vbox(_header(app), 12, lower, "stretch")))
+    return Scroll(wrap(vbox(_header(app), 12, left, "stretch")))
