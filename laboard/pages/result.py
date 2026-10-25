@@ -2,7 +2,7 @@
 from pathlib import Path
 
 from PyQt6 import sip
-from PyQt6.QtCore import QEvent, QMimeData, QObject, QPoint, QRectF, Qt, QTimer
+from PyQt6.QtCore import QEvent, QMimeData, QObject, QPoint, QRectF, QSize, Qt, QTimer
 from PyQt6.QtGui import QDrag, QFontMetrics, QImageReader, QPainter, QPixmap
 from PyQt6.QtWidgets import QApplication, QGraphicsOpacityEffect, QSlider
 
@@ -17,6 +17,9 @@ COMPARE_SIZE = 10  # ticked charts per Compare plot (one colour slot each); more
 GROUP_COLORS = (POSITIVE_DEEP, POSITIVE, WARNING, WARNING_DEEP, WARNING_CONTENT, NEGATIVE_DARKEST)
 MAX_COMPARE = COMPARE_SIZE * len(GROUP_COLORS)  # charts that can be ticked at once
 MAX_CHARTS = 60  # numeric series charted per file (as many as can be ticked: MAX_COMPARE)
+# charts in the centre and Compare cards in the right panel size alike: a grid column is CHART_W wide (two side by
+# side from 2 × 360 + gap = 732px), and dragging a card's edge narrows it down to CHART_MIN (or its content's minimum)
+CHART_W, CHART_MIN = 360, 200
 PLOT_H = (80, 1000)  # px a chart's plot can be dragged between
 
 
@@ -86,9 +89,11 @@ class RecordTable(Box):
         self.foldable = len(cols) >= self.FOLD_COLS and len(recs) >= self.FOLD_ROWS
         if self.foldable:
             self.chev = Chevron("mute", 0)
-            self.fold_note = Label("", 12, 400, "mute")
+            self.fold_note = elided("", 12, 400, "mute")  # shortens first in a narrow card
             total = f"{len(recs):,}{'+' if more else ''}"
-            self.layout().addLayout(hbox(self.chev, 10, Label(f"{len(cols)} columns · {total} rows", 13, 600), "stretch",
+            size = elided(f"{len(cols)} columns · {total} rows", 13, 600)
+            size.setMinimumWidth(min(size.sizeHint().width(), 100))  # squeezed, the note gives way before it
+            self.layout().addLayout(hbox(self.chev, 10, size, "stretch",
                                          self.fold_note, margins=(24, 6, 24, 8), align=Qt.AlignmentFlag.AlignVCenter))
             self.setCursor(Qt.CursorShape.PointingHandCursor)
             self.clicked.connect(self.toggle)
@@ -113,7 +118,7 @@ class RecordTable(Box):
         """Sit in ``flow`` (the chart grid): one cell while folded, a column wide and ``chart_h`` (a chart card's
         default height) tall; a whole row at its own height when open."""
         self.flow, self.fold_h = flow, chart_h
-        flow.add(self, 360)
+        flow.add(self, CHART_W)
         flow.set_steady(self, True)  # a chart widened beside it doesn't squeeze it
         self._fit_flow()
 
@@ -158,6 +163,13 @@ class RecordTable(Box):
 
 
 CHART_MIME = "application/x-laboard-chart"  # a dragged chart card: its tag
+
+
+class _Slider(QSlider):
+    """The smoothing slider: 140px wide when there's room, down to 60px in a narrow centre."""
+
+    def sizeHint(self):
+        return QSize(140, super().sizeHint().height())
 
 
 class _CardDrag(QObject):
@@ -215,6 +227,20 @@ class _CompareDrop(QObject):
         return False
 
 
+class _PanelResize(QObject):
+    """Tells the page when the Compare panel narrows (dragged, or squeezed by the window): ``page.unshare``."""
+
+    def __init__(self, page, side):
+        super().__init__(side)
+        self.page = page
+        side.installEventFilter(self)
+
+    def eventFilter(self, obj, e):
+        if e.type() == QEvent.Type.Resize and 0 <= e.size().width() < e.oldSize().width():
+            self.page.unshare(e.oldSize().width() - e.size().width())
+        return False
+
+
 class ResultPage(Scroll):
     """The centre: one result file. ``side`` is the right panel that overlays the ticked charts; it opens only
     while at least one is ticked (``right_on``)."""
@@ -230,21 +256,26 @@ class ResultPage(Scroll):
         self.cards = {}  # tag -> (chart card, its check)
         self.chart_h = 0  # a chart card's height at the default plot height (0: no charts)
         super().__init__(wrap(self._file(sel, store.RESULT_PATHS[sel])))
+        # with charts the centre gives up width before the side panels do, down to a chart at its narrowest
+        # (CHART_MIN, or the page's own minimum if wider), plus the 10px scroll bar; see MainWindow.fit_sides
+        self.centre_min = max(CHART_MIN, self.widget().minimumSizeHint().width()) + 10 if self.charts else None
+        self.fold_left = 160 if self.charts else 0  # past that the file list folds below 160px, not the Compare panel
         self.side = self._compare_panel()
         self.right_on = bool(self._picked())
 
     def _smoothing(self, head):
-        slider = QSlider(Qt.Orientation.Horizontal)
+        slider = _Slider(Qt.Orientation.Horizontal)
         slider.setRange(0, 19)
         slider.setValue(round(self.app.s.smooth / 0.05))
-        slider.setFixedWidth(140)
+        slider.setMinimumWidth(60)
+        slider.setMaximumWidth(140)
         slider.setStyleSheet(f"QSlider::groove:horizontal{{height:4px;background:{T.surf2};border-radius:2px;}}"
                              f"QSlider::sub-page:horizontal{{background:{T.ink};border-radius:2px;}}"
                              f"QSlider::handle:horizontal{{background:{T.ink};width:14px;height:14px;margin:-5px 0;border-radius:7px;}}")
         self.smooth_label = Label(f"{self.app.s.smooth:.2f}", 13, mono=True)
         self.smooth_label.setFixedWidth(36)
         slider.valueChanged.connect(self.on_smooth)
-        smoothing = hbox(Label("Smoothing", 13, 400, "body"), 10, slider, 10, self.smooth_label, align=Qt.AlignmentFlag.AlignVCenter)
+        smoothing = hbox(elided("Smoothing", 13, 400, "body"), 10, slider, 10, self.smooth_label, align=Qt.AlignmentFlag.AlignVCenter)
         reset = Button("Reset", on_click=self.untick_all)  # under the slider: clears every tick of this file
         head.add(vbox(smoothing, 8, hbox("stretch", reset)), stretch=0)
 
@@ -311,7 +342,7 @@ class ResultPage(Scroll):
                 self.charts.append((ch, lo, hi, xs, ys))
                 self.series[tag] = (xs, ys, xname)
                 summary = f"last {_fmt(ys[-1])} · min {_fmt(lo)} · max {_fmt(hi)}"
-                box = g.add(self._chart_card(str(path), tag, summary, ch), 360)
+                box = g.add(self._chart_card(str(path), tag, summary, ch), CHART_W)
                 if not self.chart_h:  # a chart card at the default plot height, for the folded table to match
                     self.chart_h = box.sizeHint().height() - (ch.plot_h - LineChart.PLOT_H)
                 g.set_width(box, self.app.s.chart_size.get((str(path), tag), (None,))[0])
@@ -360,7 +391,9 @@ class ResultPage(Scroll):
         key = (file, tag)
         on = key in self.app.s.chart_sel
         check = Check(on)
-        head = hbox(elided(tag, 14, 600, mono=True), 12, Label(summary, 12, 400, "body"), "stretch", 12, check,
+        name = elided(tag, 14, 600, mono=True)
+        name.setMinimumWidth(min(name.sizeHint().width(), 100))  # squeezed, the summary gives way before the name
+        head = hbox(name, 12, elided(summary, 12, 400, "body"), "stretch", 12, check,
                     align=Qt.AlignmentFlag.AlignBottom)
         head.setAlignment(check, Qt.AlignmentFlag.AlignTop)
         box = card(head, 12, chart, pad=(22, 18, 22, 18))
@@ -387,22 +420,27 @@ class ResultPage(Scroll):
         self._resizable(box, chart, key, "lrb", corners=("lt",))
         return box
 
-    def _resizable(self, box, chart, key, edges, corners=()):
-        """Drag the card's edges to size it: the bottom sets the chart's height, left/right its width in the grid.
-        Sizes last while the page is shown (``chart_size``: key -> (width or None, plot height))."""
+    def _resizable(self, box, chart, key, edges, corners=(), flow=None):
+        """Drag the card's edges to size it: the bottom sets the chart's height, left/right its width in its grid
+        (``flow``, a callable giving it; default the chart grid), not below CHART_MIN or the card's content minimum.
+        Sizes last while the page
+        is shown (``chart_size``: key -> (width or None, plot height))."""
         sizes = self.app.s.chart_size
+        flow = flow or (lambda: self.chart_flow)
         if key in sizes:
             chart.set_plot_h(sizes[key][1])
         start = {}
 
         def begin():
-            start.update(w=box.width(), h=chart.plot_h)
+            start.update(w=box.width(), h=chart.plot_h, narrowest=max(CHART_MIN, box.minimumSizeHint().width()))
 
         def drag(dw, dh):
             width = sizes.get(key, (None,))[0]
             if dw:
-                width = round(min(max(start["w"] + dw, 280), self.chart_flow.geometry().width()))
-                self.chart_flow.set_width(box, width)
+                # set_width invalidates the grid, which empties its geometry until the next layout pass: then its widget's
+                room = flow().geometry().width() or flow().parentWidget().width()
+                width = round(min(max(start["w"] + dw, start["narrowest"]), room))
+                flow().set_width(box, width)
             h = round(min(max(start["h"] + dh, PLOT_H[0]), PLOT_H[1]))
             chart.set_plot_h(h)
             sizes[key] = (width, h)
@@ -461,12 +499,28 @@ class ResultPage(Scroll):
         self.app.status(f"{tag} merged into {name}")
 
     def _compare_panel(self):
-        """The right panel: one Compare card per group of COMPARE_SIZE ticked charts (``_refresh_compare``)."""
-        self.cmp, self.cmp_list = {}, vbox(spacing=12)  # group -> dict(card, chart, count, legend)
-        side = Scroll(wrap(vbox(self.cmp_list, "stretch")))
+        """The right panel: one Compare card per group of COMPARE_SIZE ticked charts (``_refresh_compare``), one per
+        row and as wide as the panel, however wide; cards the user narrows (their left / right edges) sit side by side
+        as many as fit."""
+        self.cmp = {}  # group -> dict(card, chart, count, legend)
+        self.cmp_flow = Flow(per_row=1, fill=False)
+        side = Scroll(wrap(vbox(self.cmp_flow, "stretch")))
         side.setFixedWidth(480)  # its width when it opens; then the user's (SideHandle)
+        _PanelResize(self, side)
         self._refresh_compare()
         return side
+
+    def unshare(self, by):
+        """The Compare panel narrowed ``by`` px: cards the user narrowed to sit side by side that now each get a row of
+        their own go back to the panel's width, as they started (their heights stay)."""
+        flow, sizes = self.cmp_flow, self.app.s.chart_size
+        width = flow.geometry().width()  # still the old width: the panel's layout hasn't run yet
+        if not flow.own or not flow.shared(width) or flow.shared(width - by):
+            return
+        for g, c in self.cmp.items():
+            flow.set_width(c["card"], None)
+            if ("compare", g) in sizes:
+                sizes[("compare", g)] = (None, sizes[("compare", g)][1])
 
     def _compare_card(self, group):
         chart, count, legend = LineChart((), (), plot_h=260), Label("", 12, 400, "mute"), vbox(spacing=8)
@@ -476,7 +530,9 @@ class ResultPage(Scroll):
         panel = card(hbox(Dot(GROUP_COLORS[group], 10), 8, Label(name, 16, 600, lh=24), "stretch", count,
                           align=Qt.AlignmentFlag.AlignVCenter), 2,
                      Label(about, 12, 400, "body", wrap=True), 14, chart, 16, legend, pad=(22, 18, 22, 18))
-        self._resizable(panel, chart, ("compare", group), "b")  # its width is the panel's (the gutter line)
+        key = ("compare", group)
+        self._resizable(panel, chart, key, "lrb", corners=("lt",), flow=lambda: self.cmp_flow)
+        self.cmp_flow.set_width(panel, self.app.s.chart_size.get(key, (None,))[0])
         panel.restyle(border="2px solid transparent")  # lit up while a chart card is dragged over it
         _CompareDrop(self, panel, group)
         return dict(card=panel, chart=chart, count=count, legend=legend)
@@ -488,16 +544,23 @@ class ResultPage(Scroll):
         groups = {}
         for t, slot in self._picked():
             groups.setdefault(slot // COMPARE_SIZE, []).append((t, slot % COMPARE_SIZE))
+        flow = self.cmp_flow
         for g in [g for g in self.cmp if g not in groups]:
             gone = self.cmp.pop(g)["card"]
-            self.cmp_list.removeWidget(gone)
+            flow.takeAt(next(i for i, (it, _, _) in enumerate(flow.blocks) if it.widget() is gone))
+            flow.set_width(gone, None)
             gone.hide()
             gone.deleteLater()
+        new = [g for g in groups if g not in self.cmp]
         for g in sorted(groups):
             if g not in self.cmp:
                 self.cmp[g] = self._compare_card(g)
-                self.cmp_list.insertWidget(sorted(self.cmp).index(g), self.cmp[g]["card"])
             self._draw_compare(self.cmp[g], groups[g])
+        if new:  # the grid in group order: take every card out and put them back sorted (their widths stay)
+            while flow.count():
+                flow.takeAt(0)
+            for g in sorted(self.cmp):
+                flow.add(self.cmp[g]["card"], CHART_W)
 
     def _draw_compare(self, c, picked):
         c["count"].setText(f"{len(picked)} of {COMPARE_SIZE}")

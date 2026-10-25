@@ -355,8 +355,12 @@ class LineChart(QWidget):
         if self.x_value is not None:  # wider chart, more ticks; zoomed, they follow the view
             v0, v1 = self.view
             n = max(2, round(pw / self.X_STEP))
-            labels = [_num(self.x_value(v0 + j * (v1 - v0) / n)) for j in range(n + 1)]
-            labels[-1] += f" {self.x_name}"
+            while True:  # a narrow chart drops ticks that would run into each other, down to its two ends
+                labels = [_num(self.x_value(v0 + j * (v1 - v0) / n)) for j in range(n + 1)]
+                labels[-1] += f" {self.x_name}"
+                if n == 1 or sum(map(p.fontMetrics().horizontalAdvance, labels)) + 12 * n <= pw:
+                    break
+                n -= 1
         n = len(labels)
         for i, t in enumerate(labels):
             fm = p.fontMetrics()
@@ -468,15 +472,17 @@ class Stage(QWidget):
 
     Draws the file from ``path`` when it exists, otherwise a striped placeholder. On an image the
     wheel zooms around the cursor, Shift+wheel pans sideways, dragging pans and a double-click fits.
+    ``overlay`` (a ``labels.Overlay``) draws boxes / masks / keypoints over the image, following zoom and pan.
     """
 
     PAN_STEP = 60  # px per wheel notch with Shift
     KEEP = 48  # px of the image that stay in the pane however far it is dragged
 
-    def __init__(self, name, meta, kind, label=None, pred=None, video=False, path=None, radius=4, view=None):
+    def __init__(self, name, meta, kind, label=None, pred=None, video=False, path=None, radius=4, view=None, overlay=None):
         """``radius``: corner radius of the parent area this pane fills (part of), so panes follow its rounding."""
         super().__init__()
         self.name, self.meta, self.kind, self.label, self.pred = name, meta, kind, label, pred
+        self.overlay = overlay
         self.video, self.radius = video, radius
         self.pix = QPixmap(path) if path else QPixmap()
         self.view = view or ZoomView()
@@ -612,6 +618,8 @@ class Stage(QWidget):
             # smooth when shrinking; nearest-neighbour when zoomed in so single pixels stay visible
             p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, self._scale() < 2)
             p.drawPixmap(self._image_rect(), self.pix, QRectF(self.pix.rect()))
+            if self.overlay:
+                self.overlay.paint(p, self._image_rect(), self._scale())
             if self.view.zoom > 1:
                 text = f"{self.view.zoom * 100:.0f}%"
                 p.setFont(font(12, 600))
