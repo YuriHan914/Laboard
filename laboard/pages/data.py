@@ -7,7 +7,7 @@ from PyQt6.QtCore import QRect, QRectF, QSize, Qt
 from PyQt6.QtGui import QImageReader, QPainter, QPainterPath, QPixmap
 from PyQt6.QtWidgets import QScrollArea, QSizePolicy, QWidget
 
-from .. import project, store
+from .. import labels as label_values, project, store
 from ..charts import Stage, StackedBar, ZoomView
 from ..theme import T, font, qc
 from ..widgets import (Box, Button, Combo, Dot, HLine, Label, Scroll, Segmented, badge, card, col, elided, empty_state, hbox,
@@ -169,11 +169,19 @@ def _label_and_prediction(app, row):
         chips = []
         for key, v in rec["values"].items():
             tone = PLAIN if v in (None, "") else GOOD if str(v) == str(label) else BAD if v in classes else PLAIN
-            chips.append((key, "—" if v in (None, "") else str(v), tone))
+            chips.append((key, "—" if v in (None, "") else label_values.summary(v), tone))
         return label or "n/a", chips
     if row["predict"] in (None, ""):
         return row["label"] or "n/a", [("pred", "none · predict column is empty", PLAIN)]
     return row["label"] or "n/a", [("pred", str(row["predict"]), GOOD if str(row["predict"]) == str(row["label"]) else BAD)]
+
+
+def _overlays(app, row):
+    """(label overlay, prediction overlay) of the shown task: shapes of a json label / of the first json value of the
+    row's prediction record."""
+    rec = _result(app, row) if store.INFERENCE else None
+    pred = next((v for v in rec["values"].values() if isinstance(label_values.parse(v), (list, dict))), None) if rec else None
+    return label_values.Overlay(_label(app, row)), label_values.Overlay(pred)
 
 
 def _dims(path):
@@ -193,6 +201,7 @@ def _viewer(app, fd, files, di, sel):
     path = row["path"] if ext.lower() in project.IMAGE_EXT else None  # other formats show the placeholder
     label, chips = _label_and_prediction(app, row)
     meta, pred = f"{_dims(row['path'])} {ext}", dict(chips=chips, top=[])
+    label_shapes, pred_shapes = _overlays(app, row) if path else (None, None)
     both = mode == "both"
     # a zoom per pane (Raw / Predict move on their own in Both), kept across re-renders until another file is shown
     if not s.zoom or s.zoom[0] != row["path"]:
@@ -202,23 +211,25 @@ def _viewer(app, fd, files, di, sel):
         v.panes = []
     panes = []
     if mode != "inference":
-        panes.append(Stage(sel, meta, "raw", label=label, path=path, radius=12, view=views["raw"]))
+        panes.append(Stage(sel, meta, "raw", label=label_values.summary(label), path=path, radius=12, view=views["raw"],
+                           overlay=label_shapes))
     if mode != "raw":
-        panes.append(Stage(sel, meta, "inference", pred=pred, path=path, radius=12, view=views["inference"]))
+        panes.append(Stage(sel, meta, "inference", pred=pred, path=path, radius=12, view=views["inference"],
+                           overlay=pred_shapes))
     area = StageArea(panes, mode, "#868685" if both else None)
     stage = Box(bg="stage", radius=12, border=f"1px solid {T.line}", layout=vbox(area, margins=(1, 1, 1, 1)))
 
     split_pill = Box(bg="surf2", radius=12, layout=hbox(Dot(split_dot, 8), 6, Label(split_label, 12, 600),
                                                         margins=(10, 4, 10, 4), align=Qt.AlignmentFlag.AlignVCenter))
     modes = Segmented([("raw", "Raw"), ("inference", "Predict"), ("both", "Both")], mode,
-                      lambda k: app.set(view_mode=k), size=13, pad=(6, 16))
+                      lambda k: restate(app, view_mode=k), size=13, pad=(6, 16))
     srcs, task = _sources(app), _task(app)
     if len(srcs) > 1:  # one result file per model: choose which one the predictions come from
         shown = lambda k: k.removeprefix(f"{task} · ") if task else k  # the task is picked beside it
-        source = Combo([(k, shown(k)) for k in srcs], _source(app)[0], lambda k: app.set(infer_source=k))
+        source = Combo([(k, shown(k)) for k in srcs], _source(app)[0], lambda k: restate(app, infer_source=k))
         modes = hbox(Label("Results", 13, 400, "body"), 8, source, 12, modes, align=Qt.AlignmentFlag.AlignVCenter)
     if len(store.TASKS) > 1:  # a multi-task project: whose labels and predictions are shown
-        pick = Combo([(t, t[:1].upper() + t[1:]) for t in store.TASKS], task, lambda k: app.set(task=k, infer_source=None))
+        pick = Combo([(t, t[:1].upper() + t[1:]) for t in store.TASKS], task, lambda k: restate(app, task=k, infer_source=None))
         modes = hbox(Label("Task", 13, 400, "body"), 8, pick, 12, modes, align=Qt.AlignmentFlag.AlignVCenter)
     head = hbox(elided(sel, 16, 600, lh=24), 10, split_pill, "stretch", 16, modes, margins=(20, 14, 20, 14), align=Qt.AlignmentFlag.AlignVCenter)
 
@@ -283,9 +294,9 @@ def _info_card(app, fd, di, sel):
     ext = r["path"].rsplit(".", 1)[-1].upper() if "." in r["path"] else "—"
     label, _ = _label_and_prediction(app, r)
     if len(store.TASKS) > 1:  # every task's ground truth
-        labels = [(f"Label · {t}", r["labels"].get(t) or "—") for t in store.TASKS]
+        labels = [(f"Label · {t}", label_values.summary(r["labels"].get(t)) or "—") for t in store.TASKS]
     else:
-        labels = [("Label", label)]
+        labels = [("Label", label_values.summary(label))]
     rows = [("Path", r["path"]), ("Split", store.SPLITS[sp][0]), ("Dimensions", _dims(r["path"])), ("Format", ext),
             *labels, ("Size", f"{r['bytes'] / 1024:.0f} KB" if r["bytes"] else "missing"),
             ("Modified", datetime.fromtimestamp(r["mtime"]).strftime("%b %d, %H:%M") if r["mtime"] else "—")]
@@ -300,7 +311,7 @@ def _info_card(app, fd, di, sel):
         rec = _result(app, r)
         for key, column in src["shows"].items():
             v = rec["values"].get(key) if rec else None
-            rows.append((f"{key} · {column}", "—" if v in (None, "") else str(v)))
+            rows.append((f"{key} · {column}", "—" if v in (None, "") else label_values.summary(v)))
         rows.append(("Result file", src["rel"] if rec else f"{src['rel']} · no row"))
     body = vbox(Label("File info", 16, 600, lh=24), 10)
     for k, v in rows:
@@ -338,9 +349,24 @@ def select(app, name):
     slots = getattr(app, "data_slots", None)
     if not fd or name not in fd["files"] or not slots or any(sip.isdeleted(x) for x in slots):
         return False
+    _swap(app, fd, name)
+    return True
+
+
+def restate(app, **kw):
+    """Change how the shown file is viewed (task, Raw / Predict / Both, results source): only the viewer and File info
+    depend on it, so they are swapped in place like ``select`` instead of rebuilding the window, which flickers."""
+    fd = store.DATA_FOLDERS.get(app.s.folder)
+    slots = getattr(app, "data_slots", None)
+    if not fd or not slots or any(sip.isdeleted(x) for x in slots):
+        return app.set(**kw)
+    vars(app.s).update(kw)
+    _swap(app, fd, app.s.sel["data"] if app.s.sel["data"] in fd["files"] else fd["files"][0])
+
+
+def _swap(app, fd, name):
     s, di = app.s, fd["files"].index(name)
     files = [(n, i) for i, n in enumerate(fd["files"]) if s.split_filter in ("all", store.split_of(s.folder, i))]
-    viewer, info = slots
+    viewer, info = app.data_slots
     viewer.swap(_viewer(app, fd, files, di, name))
     info.swap(_info_card(app, fd, di, name))
-    return True
