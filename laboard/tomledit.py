@@ -8,7 +8,9 @@ import re
 import tomllib
 from datetime import date, datetime, time
 
-TASKS = ("classification", "object detection", "segmentation", "anomaly detection", "pose-estimation")
+TASKS = ("classification", "object detection", "segmentation", "instance segmentation", "semantic segmentation",
+         "panoptic segmentation", "anomaly detection", "pose-estimation")
+TASK_ALIASES = {"detection": "objectdetection", "keypoint": "poseestimation", "keypoints": "poseestimation"}  # by task_id
 # every key of a task project file, in the order the Setting page always lists them (see template.toml); lower case,
 # written as ``title`` spells them. [Label] also gets a <Task>_Label key per task of [Project] Task (``fields``).
 SCHEMA = (("project", ("name", "root", "task", "db")),
@@ -30,8 +32,10 @@ ALIASES = {"path": "paths", "lables": "labels"}  # section names read as another
 
 
 def task_id(name):
-    """A task name compared loosely: case, spaces, "_" and "-" don't matter ("Object_detection" = "object detection")."""
-    return re.sub(r"[^a-z]", "", str(name).lower())
+    """A task name compared loosely: case, spaces, "_" and "-" don't matter ("Object_detection" = "object detection"),
+    and an alias is its task ("detection" = "object detection", "keypoints" = "pose-estimation")."""
+    tid = re.sub(r"[^a-z]", "", str(name).lower())
+    return TASK_ALIASES.get(tid, tid)
 
 
 def label_key(task):
@@ -128,8 +132,9 @@ HELP = {
     ("project", "root"): "Folder of the project's git repository; the git history, branch and remote come from it. "
                          "Absolute, or relative to this toml. Left out: the first of Path.*, or this toml's folder.",
     ("project", "task"): "What the model does: one task, or several separated by commas, e.g. \"classification, "
-                         "segmentation\". Tasks: classification, object detection, segmentation, anomaly detection, "
-                         "pose-estimation (case, spaces, _ and - don't matter). The data ([Data]) is shared; each task "
+                         "segmentation\". Tasks: classification, object detection (detection), segmentation, instance "
+                         "segmentation, semantic segmentation, panoptic segmentation, anomaly detection, pose-estimation "
+                         "(keypoints) (case, spaces, _ and - don't matter). The data ([Data]) is shared; each task "
                          "has its own labels ([Label] <Task>_Label) and predictions ([Prediction]).",
     ("project", "db"): "True when [Data] or [Prediction] uses Type = \"DB\"; the connection comes from [DB]. "
                        "False: no database is used.",
@@ -173,6 +178,11 @@ HELP = {
     ("label", "file_path"): "Type = \"CSV\": the csv with the labels (may be the [Data] csv). Type = \"Folder\": the "
                             "folder the <Task>_Label folders are in (default: the data folder). Not used for DB.",
     ("label", "table"): "Type = \"DB\": the table with the labels (may be the [Data] table).",
+    ("label", "label"): "Type = \"CSV\" / \"DB\": the column with the ground truth of every task that has no "
+                        "<Task>_Label of its own, e.g. \"label\". When the csv / table lists a file once per task (a "
+                        "task column), each task's label is read from its own row. A json value (a list of "
+                        "{\"category\", \"bbox\"} / {\"category\", \"segmentation\"} / keypoints, coco format) is drawn "
+                        "on the image.",
     ("label", "*"): "A task's ground truth. Type = \"CSV\" / \"DB\": the column holding it, e.g. \"label\". "
                     "Type = \"Folder\": classification uses the class folders (any value); other tasks name a "
                     "folder of label files under File_path, one per data file with the same name.",

@@ -37,7 +37,6 @@ MODEL_INFO = {}  # file label → dict(path, stats=[(k, v)], props=[(k, v)]) fro
 # ---------------------------------------------------------------- Run
 RUNS = []  # (name, meta)
 RUN_DETAILS = {}  # run name → (dict(cmd, commit, started, progress, epoch, eta, sources), [(title, file, rows, numbered)])
-GPU = dict(name="", rows=[])
 
 # ---------------------------------------------------------------- Result
 RESULT_FILES = []  # (file label, EXT, size, folder under paths.results; "" for the top level)

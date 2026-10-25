@@ -243,7 +243,7 @@ class MainWindow(QMainWindow):
         self.dialog = None
         self.toml_text = None  # the loaded project file as edited in Setting, or None: as on disk
         self.side_widths = {}  # side panel widths the user dragged, by SideHandle key, as shares of side_scale()
-        self.handles, self.page, self.center_min = [], None, CENTER_MIN
+        self.handles, self.page, self.center_min, self.own_centre = [], None, CENTER_MIN, None
         self.top_min = 0  # the top bar's minimum width, which is the window's
         self._left_page = False  # the next render shows another tab: start its scroll at the left
         netronview.attach(self)  # before the window is shown, so adding the graph later doesn't recreate the window
@@ -365,12 +365,20 @@ class MainWindow(QMainWindow):
         what is left: as the window narrows the right panel shrinks away first, then the left one; as it widens
         the left one grows back to its width first, then the right one, a pixel at a time. A panel squeezed to
         nothing hides with its gutter, and at the window's minimum width both are gone and the centre has it all,
-        so the page doesn't scroll sideways."""
-        centre = max(self.center_min, self.top_min - 24)  # the left panel reaches 0 as the window reaches its minimum
+        so the page doesn't scroll sideways. A page with its own centre_min (Result's charts) narrows to that first
+        and keeps its panels until then, even at the window's minimum width; with ``fold_left`` the right panel is
+        filled first, so past that the left one folds away once narrower than ``fold_left`` px. Any panel squeezed
+        below SideHandle.SNAP folds."""
+        # the left panel reaches 0 as the window reaches its minimum, unless the page's own minimum is narrower
+        centre = self.own_centre or max(self.center_min, self.top_min - 24)
         free = self.width() - 24 - centre  # for the panels and their gutters
-        for h in self.handles:  # left first
+        fold = getattr(self.page, "fold_left", 0)
+        order = self.handles[::-1] if fold else self.handles
+        for h in order:  # left first, or right first with fold_left
             want = 0 if h.closed else min(round(h.share() * self.side_scale()), h.max_width())
             w = max(0, min(want, free - 12))
+            least = fold if fold and h is self.handles[0] else SideHandle.SNAP
+            w = 0 if w < min(want, least) else w  # squeezed too narrow to use: folded
             # a gutter stays for a panel the user dragged shut (to drag it back), not for one with no room
             show = not h.closed and free >= 12 and (w > 0 or want == 0)
             h.apply(w if show else 0)
@@ -469,7 +477,9 @@ class MainWindow(QMainWindow):
         page = PAGES[self.s.tab].build(self)  # the centre, or (centre, right panel)
         page, right = page if isinstance(page, tuple) else (page, None)
         page.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.page, self.center_min = page, max(CENTER_MIN, page.minimumSizeHint().width())
+        # a page may set its own narrowest centre (centre_min), which it reaches before the side panels shrink
+        self.own_centre = getattr(page, "centre_min", None)
+        self.page, self.center_min = page, self.own_centre or max(CENTER_MIN, page.minimumSizeHint().width())
         self.handles = [SideHandle(side, self, f"left:{self.s.tab}")]
         body.addWidget(side)
         body.addWidget(self.handles[0])

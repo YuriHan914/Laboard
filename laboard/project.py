@@ -40,7 +40,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
-from . import store, tomledit
+from . import labels as label_values, store, tomledit
 
 # column name aliases, first match wins (db: file_path/label/type, csv: data_path/label/status).
 # The ground truth of a db table / table file is always its "label" column; [*.columns] can't move it.
@@ -72,7 +72,7 @@ PRED_JSON_KEYS = dict(predict=("predict", "prediction", "class", "label", "pred"
 RESERVED = {"project", "git", "paths", "data", "models", "labels", "lables", "prediction"}  # toml tables that aren't a database
 
 _PATCHED = ("PROJECT", "COMMITS", "ROOT_FOLDERS", "DASH", "DATA_FOLDERS", "CLASSES", "SPLIT_TOTALS", "SPLIT_SOURCE",
-            "SPLIT_OVERLAP", "MODEL_FILES", "MODEL_INFO", "RUNS", "RUN_DETAILS", "GPU", "RESULT_FILES",
+            "SPLIT_OVERLAP", "MODEL_FILES", "MODEL_INFO", "RUNS", "RUN_DETAILS", "RESULT_FILES",
             "RESULT_PATHS", "RESULT_ROOT", "INFERENCE", "TASKS", "RECENT_PROJECTS", "TOML", "DETECTED", "STATUS")
 _original = None
 
@@ -339,7 +339,8 @@ def _data(rows, src, cols):
                              files=_labels([r["path"] for r in rs], root), rows=rs,
                              splits=[r["split"] for r in rs], labels=[r["label"] for r in rs])
 
-    classes = sorted({r["label"] for r in rows if r["label"] is not None})
+    classes = sorted({c for r in rows for v in (r["labels"].values() if "labels" in r else [r["label"]])
+                      for c in label_values.categories(v)})
     counts = Counter(r["split"] for r in rows)
     if cols.get("split"):
         how = lambda k: f"{src['name']} · {cols['split']} = '{k}'"
@@ -546,12 +547,30 @@ def _task_data(cfg, paths, base, tasks, detected, notes, as_of, cache):
             notes.append(f"{src[1]['label']}: no file-path column found (set [Data] Raw)")
             return None
         rows = _rows(src, cols, paths["data"], notes, as_of)
+        seen = set()  # a table listing a file once per task (a task column) still lists it once here
+        rows = [r for r in rows if not (os.path.normpath(r["path"]) in seen or seen.add(os.path.normpath(r["path"])))]
     if not rows:
         return None
     _attach_labels(cfg, paths, base, tasks, rows, kind, src, cols, detected, notes, cache)
     d = _data(rows, src[1], cols)
     d["dash"]["task"] = " · ".join(t[:1].upper() + t[1:] for t in tasks)
     return d
+
+
+def _value(v):
+    """A label / prediction cell as text: json for a db json column (list / dict), None when empty."""
+    if v in (None, "") or (isinstance(v, float) and v != v):
+        return None
+    return json.dumps(v) if isinstance(v, (list, dict)) else str(v)
+
+
+def _task_rows(rows, path_col, task):
+    """The rows of ``task`` when ``rows`` list a file once per task (a task column, file paths repeating), else
+    every row."""
+    col = _columns(rows, {})["task"] if rows else None
+    if not col or len({r.get(path_col) for r in rows}) == len(rows):
+        return rows
+    return [r for r in rows if TASK_IDS.get(_task_id(r.get(col) or "")) == task]
 
 
 def _label_files(folder):
@@ -565,17 +584,21 @@ def _label_files(folder):
 
 
 def _attach_labels(cfg, paths, base, tasks, rows, data_kind, data_src, data_cols, detected, notes, cache):
-    """Give each row ``labels`` ({task: ground truth or None}) and ``label`` (the first task's: CLASSES and the
-    viewer's default use it), from [Label].
+    """Give each row ``labels`` ({task: ground truth or None}) and ``label`` (the first task's: the viewer's default
+    uses it), from [Label].
 
-    [Label] Type = "DB" / "CSV": ``<Task>_Label`` names the column with that task's ground truth, in ``Table`` /
-    ``File_path`` (default: [Data]'s), matched to the data by the raw-file path column (``Raw``, default [Data]'s).
+    [Label] Type = "DB" / "CSV": ``<Task>_Label`` names the column with that task's ground truth (``Label``: the
+    column of every task without one), in ``Table`` / ``File_path`` (default: [Data]'s), matched to the data by the
+    raw-file path column (``Raw``, default [Data]'s). A table listing a file once per task (a task column) gives each
+    task the value of its own row.
     Type = "Folder": classification reads the split/label/file layout of a Folder data source; another task's
     ``<Task>_Label`` names a folder of label files (absolute, or under ``File_path``, default the data folder), one
     per data file with the same name.
     """
     lcfg, dcfg = cfg.get("label", {}), cfg.get("data", {})
     keys = _per_task(lcfg, "label")
+    if lcfg.get("label") and str(lcfg.get("type") or data_kind).lower() in ("db", "csv"):
+        keys = {t: keys.get(t, lcfg["label"]) for t in tasks}  # Label: the column of every task without its own
     kind = str(lcfg.get("type") or data_kind).lower()
     for r in rows:
         r["labels"] = dict.fromkeys(tasks)
@@ -617,12 +640,11 @@ def _attach_labels(cfg, paths, base, tasks, rows, data_kind, data_src, data_cols
                 if c not in names:
                     notes.append(f"[Label] {title(t)}_Label: no column {c!r} in {src[1]['name']}")
             at = src[1].get("base")
-            index = {os.path.normpath(_abs(r[path_col], at)): r for r in src[0] if r.get(path_col)}
-            for r in rows:
-                raw = index.get(os.path.normpath(r["path"]))
-                for t, c in keys.items():
-                    v = raw.get(c) if raw else None
-                    r["labels"][t] = None if v in (None, "") or (isinstance(v, float) and v != v) else str(v)
+            for t, c in keys.items():
+                index = {os.path.normpath(_abs(r[path_col], at)): r for r in _task_rows(src[0], path_col, t) if r.get(path_col)}
+                for r in rows:
+                    raw = index.get(os.path.normpath(r["path"]))
+                    r["labels"][t] = _value(raw.get(c)) if raw else None
         elif src and src[0]:
             notes.append(f"[Label] {src[1]['name']}: no file-path column")
     else:
@@ -675,26 +697,27 @@ def _task_predictions(cfg, paths, base, rows, tasks, detected, notes, cache):
         pc = {k: _per_task(pcfg, k).get(t, pcfg.get(k)) for k in PRED_KEYS} | dict(results_root=paths["results"])
         where = "[Prediction]" + (f" {t}" if len(tasks) > 1 else "")
         results = _task_dir(paths["results"], t) if task_dirs else paths["results"]
-        for name, src in _predictions(pc, cfg, base, results, rows, detected, notes, cache, where).items():
+        for name, src in _predictions(pc, cfg, base, results, rows, detected, notes, cache, where, t).items():
             src["task"] = t
             out[f"{t} · {name}" if len(tasks) > 1 else name] = src
     return out
 
 
-def _predictions(pc, cfg, base, results, rows, detected, notes, cache, where):
+def _predictions(pc, cfg, base, results, rows, detected, notes, cache, where, task=None):
     """One task's predictions (``pc``: its [Prediction] keys). Type = "CSV": ``File_path`` is a result file name /
     glob under ``results`` (or an absolute path), one source per match. "DB": ``Table``, matched by its file-path
     column. "Folder": ``File_path`` holds one ``<file stem>.<Format>`` per data file, at the data file's place in the data tree or
     anywhere by stem: a txt holding "<class> [score]", or a json object. ``Predict`` / ``Predict_score`` name the
-    class / score columns of CSV and DB, and the keys of a json (guessed from PRED_JSON_KEYS when left out)."""
+    class / score columns of CSV and DB, and the keys of a json (guessed from PRED_JSON_KEYS when left out). A CSV /
+    table listing a file once per task (a task column) gives ``task`` the values of its own rows."""
     kind = str(pc.get("type") or "").lower()
     shows = {k: pc[k] for k in ("predict", "predict_score") if pc.get(k)}
     if kind == "csv":
-        if results is None:
+        if results is None and not Path(str(pc.get("file_path") or "")).is_absolute():  # an absolute file needs no folder
             notes.append(f"{where}: no folder for it under Path.Results")
             return {}
-        under = "Path.Results" + (f"/{results.name}" if results.parent == pc["results_root"] else "")
-        sources, inotes = _inference(pc.get("file_path"), shows, results, what=f"{where} File_path", under=under)
+        under = "Path.Results" + (f"/{results.name}" if results and results.parent == pc["results_root"] else "")
+        sources, inotes = _inference(pc.get("file_path"), shows, results, what=f"{where} File_path", under=under, task=task)
         notes += inotes
         return sources
     if kind == "db":
@@ -709,7 +732,7 @@ def _predictions(pc, cfg, base, results, rows, detected, notes, cache, where):
         lost = [c for c in shows.values() if c not in src[0][0]]
         if lost:
             notes.append(f"{where} {table}: no column {', '.join(lost)}")
-        by_path, by_name = _index(src[0], col, shows, None)
+        by_path, by_name = _index(_task_rows(src[0], col, task) if task else src[0], col, shows, None)
         return {f"db · {table}": dict(file=src[1]["where"], rel=f"db · {table}", shows=shows, by_path=by_path, by_name=by_name)}
     if kind == "folder":
         fmt = str(pc.get("format") or "txt").lower().lstrip(".")
@@ -1049,14 +1072,14 @@ def _index(rows, path_col, shows, base):
         p = r.get(path_col)
         if not p:
             continue
-        rec = dict(values={k: r.get(c) for k, c in shows.items()})
+        rec = dict(values={k: _value(r.get(c)) for k, c in shows.items()})
         p = os.path.normpath(_abs(p, base))
         by_path[p] = rec
         by_name.setdefault(os.path.basename(p), rec)
     return by_path, by_name
 
 
-def _inference(name, shows, results_dir, path_col=None, what="[Labels] Result_file", under="Path.Results"):
+def _inference(name, shows, results_dir, path_col=None, what="[Labels] Result_file", under="Path.Results", task=None):
     """Inference columns from result files: ``[labels]`` (also read when spelled ``[lables]``) and
     ``[prediction] type = "csv"``.
 
@@ -1064,7 +1087,8 @@ def _inference(name, shows, results_dir, path_col=None, what="[Labels] Result_fi
     match is one source, e.g. one ``inference.csv`` per model folder. ``shows`` maps a key to the column
     shown for it, e.g. ``{"infer": "classification"}``; ``path_col`` names the file-path column (guessed
     when None). Rows match data files by path, or by file name when paths differ. The ground truth stays
-    the data's own label; a label column in the result file isn't read. Returns ({source: dict}, notes).
+    the data's own label; a label column in the result file isn't read. ``task``: a file listing a file once per
+    task (a task column) gives the values of that task's rows. Returns ({source: dict}, notes).
     """
     if not name:
         return {}, [f"{what} not set"]
@@ -1089,27 +1113,12 @@ def _inference(name, shows, results_dir, path_col=None, what="[Labels] Result_fi
         lost = [c for c in shows.values() if c not in names]
         if lost:
             notes.append(f"{_rel(f, results_dir)}: no column {', '.join(lost)}")
-        by_path, by_name = _index(rows, cols["path"], shows, f.parent)
+        by_path, by_name = _index(_task_rows(rows, cols["path"], task) if task else rows, cols["path"], shows, f.parent)
         inside = results_dir is not None and f.is_relative_to(results_dir)
         src = _rel(f.parent, results_dir) if inside and f.parent != results_dir else f.name  # a file given outside: its name
         sources[src] = dict(file=str(f), rel=_rel(f, results_dir.parent if results_dir else f.parent),
                             shows=shows, by_path=by_path, by_name=by_name)
     return sources, notes
-
-
-# ---------------------------------------------------------------- environment
-def _gpu():
-    out = _run("nvidia-smi", "--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu",
-               "--format=csv,noheader,nounits", timeout=3).strip().splitlines()
-    try:
-        name, util, used, total, temp = [x.strip() for x in out[0].split(",")]
-        util, used, total, temp = int(util), int(used), int(total), int(temp)
-    except (IndexError, ValueError):
-        return dict(name="No GPU detected", rows=[]), None
-    return (dict(name=f"GPU 0 · {name.replace('NVIDIA ', '').replace('GeForce ', '')}",
-                 rows=[("Utilization", f"{util}%", util), ("Memory", f"{used / 1024:.1f} / {total / 1024:.0f} GB",
-                                                            round(used / total * 100)), ("Temperature", f"{temp} °C", temp)]),
-            f"GPU 0 · {util}%")
 
 
 # ---------------------------------------------------------------- entry point
@@ -1268,8 +1277,6 @@ def _load(toml_path, cfg, commit, text=None):
         else:
             detected.append(("Labels / inference", f"{lcfg.get('result_file', 'result_file not set')}", "warning", "Not found"))
 
-    gpu, gpu_text = _gpu()
-    _set("GPU", gpu)
     _set("DASH", {**store.DASH, **dash})
     n_runs = len(store.RUN_DETAILS)
     _set("PROJECT", dict(
@@ -1293,5 +1300,5 @@ def _load(toml_path, cfg, commit, text=None):
     _set("STATUS", dict(watching="Watching " + ", ".join(watched) if watched else "",
                         left=[f"Python {sys.version.split()[0]}", f"PyQt6 {PYQT_VERSION_STR}",
                               f"Data: {store.SPLIT_SOURCE[0]}" if d else "Data: none"],
-                        right=[*([gpu_text] if gpu_text else []), f"Loaded {datetime.now():%H:%M}"]))
+                        right=[f"Loaded {datetime.now():%H:%M}"]))
     return notes

@@ -577,7 +577,7 @@ class Flow(QLayout):
     ``add`` gives each block the width it needs and a stretch. With ``per_row`` the rows are a grid of that many
     equal columns (fewer when they don't fit), except blocks given their own width (``set_width``): those keep it,
     the others in their row share what is left, and a block that would get less than its width wraps to the next
-    row. Otherwise each row shares its spare width by stretch. A row is as tall as its tallest block; ``fill``
+    row; a row of blocks that all have their own width takes as many as fit, past ``per_row``. Otherwise each row shares its spare width by stretch. A row is as tall as its tallest block; ``fill``
     stretches the others to match, else they keep their own height. ``vspacing`` is the gap between rows
     (default: ``spacing``)."""
 
@@ -655,6 +655,10 @@ class Flow(QLayout):
         widest = max((m for _, m, _ in self.blocks), default=0)
         return max(1, min(self.per_row, (width + self.gap) // (widest + self.gap)))
 
+    def shared(self, width):
+        """Whether some row holds more than one block when laid out in ``width``."""
+        return any(len(r) > 1 for r in self._rows(width))
+
     def _rows(self, width):
         shown = [b for b in self.blocks if not b[0].isEmpty()]
         n = self._cols(width) if self.per_row else None
@@ -665,7 +669,11 @@ class Flow(QLayout):
         for b in shown:
             w = b[0].widget()
             need = min(self.own.get(w) or (colw if w in self.steady else 0) or b[1], width)
-            if row and (used + self.gap + need > width or len(row) == n):
+            # a row holds n columns; blocks that all have their own width share a row as long as they fit
+            capped = len(row) >= n if n else False
+            if capped and all(self.own.get(x[0].widget()) for x in row + [b]):
+                capped = False
+            if row and (used + self.gap + need > width or capped):
                 rows.append(row)
                 row, used = [], 0
             used += (self.gap if row else 0) + need
