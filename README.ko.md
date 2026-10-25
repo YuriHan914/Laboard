@@ -39,7 +39,7 @@ Laboard는 읽기만 합니다. 파일, 데이터베이스, 저장소를 수정�
 
 * 데이터 뷰어: train / valid / test split, 레이블, 모델 예측을 나란히 확인
 * 내장 [Netron](https://netron.app) 뷰로 모델 그래프와 파라미터 수 확인 (GPU, torch 불필요)
-* 학습 run: 진행 상황, 설정 파일의 모든 하이퍼파라미터, GPU 상태
+* 학습 run: 진행 상황과 설정 파일의 모든 하이퍼파라미터
 * csv / jsonl / TensorBoard 결과 차트, smoothing과 여러 곡선 비교
 * git 기록, 예전 커밋 시점의 프로젝트 전체 보기
 * Postgres / Supabase 테이블, 테이블 파일, 폴더 스캔에서 데이터 읽기
@@ -94,6 +94,39 @@ python -m laboard --project project.toml
 | `--frameless` | 시스템 타이틀 바 대신 Laboard의 어두운 타이틀 바 사용 |
 | `--screenshot out.png` | 창을 한 번 그려 PNG로 저장하고 종료. `QT_QPA_PLATFORM=offscreen`이면 화면 없이도 동작 |
 
+## 🗂️ Data Format
+
+`[Data] Type = "CSV"` / `"DB"`로 데이터를 읽을 때 csv·테이블에 필요한 열과 라벨 저장 형식입니다.
+전체 설명은 [Data · 데이터 형식](Docs/ko/data.md#데이터-형식-필수-열과-라벨-format)에 있습니다.
+
+**열**
+
+| 열 | 필요 | 값 |
+| --- | --- | --- |
+| 파일 경로 (`file_path` 등, `[Data] Raw`로 지정) | **필수** | 원본 파일 경로. DB는 절대 경로, CSV는 절대 경로 또는 csv 위치 기준 상대 경로 |
+| 라벨 (`[Label] Label` / `<Task>_Label`로 지정) | 정답을 보려면 필수 | 아래 라벨 format |
+| task (`task` / `object`) | 파일 하나를 task마다 한 행으로 저장할 때 **필수** | `[Project] Task`의 task 이름 |
+| split (`type`, `split` 등) | 선택 (권장) | `train` / `valid` / `test` |
+| 생성일 (`create_date` 등) | 선택 | `2024-01-05 10:00:00` |
+
+- **파일당 한 행:** task마다 라벨 열을 따로 두고 `<Task>_Label`로 지정합니다.
+- **task당 한 행:** task 열 + 라벨 열 하나를 두고 `Label = "label"` 하나로 지정합니다. 같은 파일 경로가 여러 행에
+  나오면 이 형식으로 읽습니다.
+
+**라벨 format**: 일반 문자열 또는 coco format json. json은 Data 페이지에서 이미지 위에 그립니다.
+
+| task | 형식 |
+| --- | --- |
+| classification | `cat` 또는 `["cat", "dog"]` |
+| object detection | `[{"category": "cat", "bbox": [x, y, w, h]}]` |
+| segmentation | `[{"category": "cat", "segmentation": [[x1, y1, x2, y2, …]]}]` (polygon, 또는 RLE `{"counts", "size"}`) |
+| pose-estimation | `[{"category": "person", "bbox": [x, y, w, h], "keypoints": [x, y, v, …]}]` |
+| panoptic segmentation | `{"mask_path": "<png 절대 경로>", "segments_info": [{"id", "category", "bbox"}]}` |
+
+- 좌표는 이미지 픽셀 기준(원점 왼쪽 위)이고, bbox는 `[x, y, w, h]`입니다.
+- 반드시 `json.dumps`로 저장하세요. `str(list)`로 저장한 `['cat']`(작은따옴표)은 json이 아니어서 그리지 않습니다.
+- DB 라벨 열은 `JSONB`(권장) 또는 `TEXT`로 만듭니다.
+
 ---
 
 ## 📚 Documentation
@@ -105,7 +138,7 @@ python -m laboard --project project.toml
 | [Home](Docs/ko/home.md) | 데이터 / 모델 / 최근 run / 결과 요약과 git 기록 |
 | [Data](Docs/ko/data.md) | 모든 데이터 파일과 split, 레이블을 보고 모델 예측과 비교 |
 | [Model](Docs/ko/model.md) | 모델 파일의 Netron 그래프, 속성, 레이어별 파라미터 |
-| [Hyperparameter](Docs/ko/run.md) | 학습 run의 진행 상황, 모든 하이퍼파라미터, GPU |
+| [Hyperparameter](Docs/ko/run.md) | 학습 run의 진행 상황과 모든 하이퍼파라미터 |
 | [Result](Docs/ko/result.md) | csv / jsonl / TensorBoard 차트, 곡선 비교, 표, 로그, 이미지 |
 | [Setting](Docs/ko/setting.md) | 프로젝트 파일 로드, 감지된 항목, 테마 전환, 프로젝트 파일 작성법 |
 
@@ -166,6 +199,6 @@ python -m laboard --project project.toml
 
 - **왼쪽:** 프로젝트가 가리키는 폴더(models, runs, results), Python과 PyQt6 버전, 데이터 출처.
 - **가운데:** 가장 최근 메시지. 예: 로드 메모가 붙은 `Loaded …`, 로드 오류, 읽기 전용 스냅샷 안내.
-- **오른쪽:** GPU 0 사용률(`nvidia-smi`가 있을 때)과 프로젝트를 로드한 시각.
+- **오른쪽:** 프로젝트를 로드한 시각.
 
 

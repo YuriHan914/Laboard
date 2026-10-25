@@ -36,7 +36,7 @@ remote-tracking branches.
 
 * Data viewer with train / valid / test splits, labels and model predictions side by side
 * Model graphs in an embedded [Netron](https://netron.app) view, with parameter counts — no GPU or torch needed
-* Training runs: progress, every hyperparameter from the config files, GPU status
+* Training runs: progress and every hyperparameter from the config files
 * Result charts from csv / jsonl / TensorBoard files, with smoothing and multi-curve comparison
 * Git history, and the whole project viewed as of any earlier commit
 * Data from a Postgres / Supabase table, a table file, or a folder scan
@@ -91,6 +91,39 @@ Started without `--project`, Laboard opens on **Setting** and asks you to load a
 | `--frameless` | Draw Laboard's own dark title bar instead of the system one |
 | `--screenshot out.png` | Render the window once, save it as a PNG and exit. Works headless with `QT_QPA_PLATFORM=offscreen` |
 
+## 🗂️ Data Format
+
+The columns a csv / table needs when data is read with `[Data] Type = "CSV"` / `"DB"`, and how labels are stored.
+The full description is in [Data · Data format](Docs/en/data.md#data-format-required-columns-and-label-values).
+
+**Columns**
+
+| Column | Needed | Value |
+| --- | --- | --- |
+| File path (`file_path`, …, set with `[Data] Raw`) | **required** | The raw file's path. DB: absolute · CSV: absolute, or relative to the csv's folder |
+| Label (set with `[Label] Label` / `<Task>_Label`) | required to see the ground truth | See the label format below |
+| Task (`task` / `object`) | **required** when a file has one row per task | A task name from `[Project] Task` |
+| Split (`type`, `split`, …) | optional (recommended) | `train` / `valid` / `test` |
+| Created (`create_date`, …) | optional | `2024-01-05 10:00:00` |
+
+- **One row per file:** a label column per task, each named with `<Task>_Label`.
+- **One row per task:** a task column + one label column, named with a single `Label = "label"`. A table where the
+  same file path appears in several rows is read this way.
+
+**Label format**: a plain string, or json in coco format. Json is drawn over the image on the Data page.
+
+| Task | Format |
+| --- | --- |
+| classification | `cat` or `["cat", "dog"]` |
+| object detection | `[{"category": "cat", "bbox": [x, y, w, h]}]` |
+| segmentation | `[{"category": "cat", "segmentation": [[x1, y1, x2, y2, …]]}]` (polygons, or RLE `{"counts", "size"}`) |
+| pose-estimation | `[{"category": "person", "bbox": [x, y, w, h], "keypoints": [x, y, v, …]}]` |
+| panoptic segmentation | `{"mask_path": "<absolute png path>", "segments_info": [{"id", "category", "bbox"}]}` |
+
+- Coordinates are image pixels (origin at the top left); a bbox is `[x, y, w, h]`.
+- Save with `json.dumps`. `['cat']` written by `str(list)` (single quotes) isn't json and isn't drawn.
+- Make a DB label column `JSONB` (recommended) or `TEXT`.
+
 ---
 
 ## 📚 Documentation
@@ -102,7 +135,7 @@ Each page has a detailed guide in [Docs](Docs/README.md):
 | [Home](Docs/en/home.md) | Data / model / latest run / result summaries, next to the git history |
 | [Data](Docs/en/data.md) | Browse every data file, its split and label, and compare it with model predictions |
 | [Model](Docs/en/model.md) | A model file's graph in Netron, its properties and parameters by layer |
-| [Hyperparameter](Docs/en/run.md) | A training run's progress, all of its hyperparameters, and the GPU |
+| [Hyperparameter](Docs/en/run.md) | A training run's progress and all of its hyperparameters |
 | [Result](Docs/en/result.md) | Charts from csv / jsonl / TensorBoard, curve comparison, tables, logs and images |
 | [Setting](Docs/en/setting.md) | Load a project file, see what was detected, switch the theme; the project file reference |
 
@@ -167,5 +200,5 @@ Each page has a list on the left: root folders (Home), data folders and files (D
   and where the data came from.
 - **Middle:** the latest message, such as `Loaded …` with notes from loading, a load error, or the
   read-only snapshot notice.
-- **Right:** GPU 0 utilisation (if `nvidia-smi` is available) and when the project was loaded.
+- **Right:** when the project was loaded.
 
