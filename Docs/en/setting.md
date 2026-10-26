@@ -175,6 +175,27 @@ postgres / postgres) and `Limit` (most rows read, default 200,000).
 
 Each of the three can hold one folder per task (e.g. `Models/classification/<model>/`).
 
+**Files on another machine.** Write a path as `host:path`, e.g. `Hyperparameter = "gcloud:~/laboard/Runs"`. This
+works for every path: the `[Path]` folders, `[Data]` / `[Label]` / `[Prediction]` `File_path` (and label / prediction
+folders), and the file-path column of a csv or DB table (`gcloud:~/laboard/img/0001.jpg`). Laboard logs in to `host`
+over ssh and nothing on that machine is changed:
+
+- `[Path]` folders and `[Data]` / `[Label]` / `[Prediction]` files are copied into a temp folder on every load
+  (Hyperparameter: only the config files; Models: files under 500 MB; Results and label / prediction folders: files
+  under 50 MB);
+- data files (a `[Data] Type = "Folder"` folder, or the files a table lists) are not copied at load, only their sizes
+  and times are read. The Data page fetches the shown file and its thumbnails when it shows them, and keeps them until
+  Laboard exits.
+
+The login command for `host` is, first found:
+
+- `[SSH] gcloud = "SSH/gcp.key"`: a file holding the login command, e.g. `gcloud compute ssh my-vm --zone us-west1-b`
+  or `ssh -i ~/.ssh/key user@1.2.3.4` (a private key file is used as `ssh -i <file> host`);
+- the file `SSH/<host>.*` next to the project file, or the only file in that `SSH/` folder;
+- `ssh host`, a Host of `~/.ssh/config`.
+
+The login must work without a password prompt.
+
 **`[Data]` / `[Label]` / `[Prediction]`** the keys used depend on `Type`. For each Type's details and the columns
 it needs, see [Data setup](data.md#data-setup), [Label setup](data.md#label-setup-label) and
 [Prediction setup](data.md#prediction-setup-prediction) in the Data page docs.

@@ -148,7 +148,9 @@ HELP = {
     ("paths", "models"): "Folder with model checkpoints (.pt, .pth, .onnx, .safetensors, .ckpt, …), "
                          "listed on the Model page. Sub-folders are included.",
     ("paths", "hyperparameter"): "Folder with one sub-folder per training run, each holding json / yaml / toml "
-                                 "configs (and trainer_state.json); shown on the Hyperparameter page.",
+                                 "configs (and trainer_state.json); shown on the Hyperparameter page. "
+                                 "\"host:path\" (e.g. \"gcloud:~/laboard/Runs\") reads it over ssh, logging in "
+                                 "with the command in [SSH] host or the SSH/ folder next to this file.",
     ("paths", "results"): "Folder with result files (csv, logs, images, TensorBoard events, …) shown on the Result "
                           "page. [Prediction] Type = \"CSV\" looks for its path here.",
     ("db", "db"): "Database kind: \"supabase\" (a local Supabase stack, whose Postgres runs on port 54322).",

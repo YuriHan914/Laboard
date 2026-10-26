@@ -175,6 +175,24 @@ Predict_score = "AD_score"
 
 세 폴더 모두 task 이름 폴더로 나눌 수 있습니다(예: `Models/classification/<모델>/`).
 
+**다른 컴퓨터의 파일.** 경로를 `host:path`로 쓰면 됩니다. 예: `Hyperparameter = "gcloud:~/laboard/Runs"`.
+모든 경로에 쓸 수 있습니다: `[Path]` 폴더, `[Data]` / `[Label]` / `[Prediction]`의 `File_path`(라벨 / 예측 폴더 포함),
+csv나 DB 테이블의 파일 경로 열(`gcloud:~/laboard/img/0001.jpg`). ssh로 `host`에 접속해 읽으며 그 컴퓨터의 파일은 바꾸지 않습니다.
+
+- `[Path]` 폴더와 `[Data]` / `[Label]` / `[Prediction]` 파일은 불러올 때마다 임시 폴더로 복사합니다(Hyperparameter: 설정
+  파일만, Models: 500 MB 미만 파일, Results와 라벨 / 예측 폴더: 50 MB 미만 파일).
+- 데이터 파일(`[Data] Type = "Folder"` 폴더, 테이블에 적힌 파일)은 불러올 때 복사하지 않고 크기와 시간만 읽습니다. Data 페이지가
+  보여 주는 파일과 썸네일을 그때 가져오고, Laboard를 끌 때까지 보관합니다.
+
+`host`의 접속 명령은 아래 순서로 먼저 찾은 것입니다.
+
+- `[SSH] gcloud = "SSH/gcp.key"`: 접속 명령이 들어 있는 파일. 예: `gcloud compute ssh my-vm --zone us-west1-b`,
+  `ssh -i ~/.ssh/key user@1.2.3.4` (개인 키 파일이면 `ssh -i <파일> host`로 씁니다)
+- 프로젝트 파일 옆 `SSH/<host>.*` 파일, 또는 그 `SSH/` 폴더에 파일이 하나뿐이면 그 파일
+- `ssh host` (`~/.ssh/config`의 Host)
+
+비밀번호를 묻지 않고 접속되어야 합니다.
+
 **`[Data]` / `[Label]` / `[Prediction]`** Type에 따라 쓰는 key가 다릅니다. Type별 상세 설명과 필요한 열은
 [Data 페이지 문서의 데이터 설정](data.md#데이터-설정), [라벨 설정](data.md#라벨-설정-label),
 [예측 설정](data.md#예측-설정-prediction)을 보세요.

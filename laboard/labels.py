@@ -17,6 +17,7 @@ from functools import lru_cache
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QBitmap, QColor, QImage, QPainter, QPainterPath, QPen, QPixmap, QRegion, QTransform
 
+from . import remote
 from .theme import font
 
 # distinct hues that read over any photo; a category always gets the same one
@@ -141,7 +142,7 @@ class Overlay:
         self.shapes = []  # (category, outline path, filled, keypoints [(x, y)] , limbs [(i, j)])
         self.mask = None
         if isinstance(v, dict) and v.get("mask_path"):
-            self.mask = _panoptic(str(v["mask_path"]), _objects(v))
+            self.mask = _panoptic(remote.local(str(v["mask_path"])), _objects(v))
         for o in _objects(v):
             cat = o.get("category", "")
             if isinstance(v, dict):  # panoptic segments: the mask is drawn, the boxes only carry the names
