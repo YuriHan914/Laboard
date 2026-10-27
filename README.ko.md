@@ -5,8 +5,8 @@
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="Docs/assets/LABOARD_LOGO_DARK.png"/>
-    <img src="Docs/assets/LABOARD_LOGO.png" alt="Laboard" width="136"/>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/YuriHan914/Laboard/f8e7266ac86c7b964c78548f822705ff3c4854d6/Docs/assets/LABOARD_LOGO_DARK.png"/>
+    <img src="https://raw.githubusercontent.com/YuriHan914/Laboard/f8e7266ac86c7b964c78548f822705ff3c4854d6/Docs/assets/LABOARD_LOGO.png" alt="Laboard" width="136"/>
   </picture>
 </p>
 
@@ -30,8 +30,8 @@
 
 <table>
   <tr>
-    <td align="center" width="50%"><img src="Docs/assets/LABOARD_HOME.png" alt="Home (light)"/><br/><sub>[Light]</sub></td>
-    <td align="center" width="50%"><img src="Docs/assets/LABOARD_HOME_DARK.png" alt="Home (dark)"/><br/><sub>[Dark]</sub></td>
+    <td align="center" width="50%"><img src="https://raw.githubusercontent.com/YuriHan914/Laboard/f8e7266ac86c7b964c78548f822705ff3c4854d6/Docs/assets/LABOARD_HOME.png" alt="Home (light)"/><br/><sub>[Light]</sub></td>
+    <td align="center" width="50%"><img src="https://raw.githubusercontent.com/YuriHan914/Laboard/f8e7266ac86c7b964c78548f822705ff3c4854d6/Docs/assets/LABOARD_HOME_DARK.png" alt="Home (dark)"/><br/><sub>[Dark]</sub></td>
   </tr>
 </table>
 
