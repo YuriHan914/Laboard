@@ -4,42 +4,61 @@
 # to this file. Settings shows every key below with a description of what to put in it. Names are read in any case.
 
 [Project]
-Name = ""                  # project name; empty: the root folder's name
-Root = ""                  # folder of the project's git repository
-Task = "classification"    # one task or several, comma-separated: classification, object detection,
-                           # segmentation, anomaly detection, pose-estimation
-DB = False                 # True when [Data], [Label] or [Prediction] uses Type = "DB"
+Name = ""                                       # project name; empty: the root folder's name
+Root = ""                                       # folder of the project's git repository
+Task = "classification,object detection,..."    # one task or several, comma-separated: classification, object detection,
+                                                # instance segmentation, semantic segmentation, panoptic segmentation,
+                                                # anomaly detection, pose-estimation
+DB = False                                      # True when [Data], [Label] or [Prediction] uses Type = "DB"
 
-[DB]                       # database connection, shown and used when [Project] DB = True
-DB = ""                    # supabase
-DB_ip = ""                 # e.g. "http://127.0.0.1:54323/" or "postgresql://user:password@host:5432/db"
+[DB]                                            # database connection, shown and used when [Project] DB = True
+DB = ""                                         # supabase
+DB_ip = ""                                      # e.g. "http://127.0.0.1:54323/" or "postgresql://user:password@host:5432/db"
 
-[Git]                      # fallbacks when git can't tell
-Remote = ""                # e.g. "github.com:user/repo.git"
-Branch = ""                # e.g. "main"
+[Git]                                           # fallbacks when git can't tell
+Remote = ""                                     # e.g. "github.com:user/repo.git"
+Branch = ""                                     # e.g. "main"
 
-[Path]                     # each may hold one folder per task, e.g. Results/classification/<model>/
-Models = ""                # folder with model checkpoints
-Hyperparameter = ""        # folder with one sub-folder per training run
-Results = ""               # folder with result files
+[Path]                                          # each may hold one folder per task, e.g. Results/classification/<model>/
+Models = ""                                     # folder with model checkpoints
+Hyperparameter = ""                             # folder with one sub-folder per training run
+Results = ""                                    # folder with result files
 
-[Data]                     # the raw data files, one list for every task
-Type = ""                  # CSV | DB | Folder
-File_path = ""             # CSV: the csv listing the files · Folder: the dataset folder (split/label/file)
-Table = ""                 # DB: table with one row per file
-Raw = ""                   # CSV / DB: column with each raw file's path, e.g. "file_path"
+[Data]                                          # the raw data files, one list for every task
+Type = ""                                       # CSV | DB
+File_path = ""                                  # CSV: the csv listing the files
+Table = ""                                      # DB: table with one row per file
+Raw = ""                                        # CSV / DB: column with each raw file's path, e.g. "file_path"
 
-[Label]                    # ground truth, one <Task>_Label per task
-Type = ""                  # CSV | DB | Folder
-File_path = ""             # CSV: the labels csv · Folder: the folder the label folders are in
-Table = ""                 # DB: table with the labels
-Classification_Label = ""  # CSV / DB: its column · Folder: the class folders (any value)
-                           # other tasks: Segmentation_Label, Object_detection_Label, … (Folder: a label folder)
+[Label]                                         # ground truth, one column for every task
+Type = ""                                       # CSV | DB
+File_path = ""                                  # CSV: the labels csv
+Table = ""                                      # DB: table with the labels
+Label = ""                                      # its column; a task column picks each task's row
 
-[Prediction]               # any key can be set for one task as <Task>_<Key>, e.g. Segmentation_Predict
-Type = ""                  # CSV | DB | Folder
-File_path = ""             # CSV: result file name / glob under Path.Results/<task> · Folder: prediction folder
-Table = ""                 # DB: table with the predictions
-Format = ""                # Folder: txt | json
-Predict = ""               # CSV / DB: predicted-class column · json: its key
-Predict_score = ""         # CSV / DB: score column · json: its key
+[Prediction]                                    # any key can be set for one task as <Task>_<Key>, e.g. Instance_segmentation_Predict
+Type = ""                                       # CSV | DB
+File_path = ""                                  # CSV: result file name / glob under Path.Results/<task>
+Table = ""                                      # DB: table with the predictions
+Predict = ""                                    # predicted-class column
+Predict_score = ""                              # score column
+
+
+[gcloud]                                        # gcloud compute ssh <instance_name> --zone <zone>
+instance_name="instance name"                   # required: the VM instance's name
+zone="instance zone"                            # e.g. "us-west1-b"
+
+[az]                                            # az ssh vm --name <vm_name> --resource-group <resource-group>
+vm_name="VM name"                               # the Azure VM's name
+resource-group="resource group"                 # its resource group
+
+[aws]                                           # sends the public key (EC2 Instance Connect), then ssh -i <private key> <user>@<public ip>
+instance-id="instance ID"                       # required: e.g. "i-0123456789abcdef0"
+instance-os-user="ec2-user"                     # required: the login user, e.g. "ec2-user", "ubuntu"
+ssh-public-key="file://~/.ssh/id_ed25519.pub"   # required: public key; the private key is this file without .pub
+availability-zone="AZ(zone)"                    # e.g. "us-east-1a"; its region finds the instance's public ip
+
+[ssh]                                           # ssh -i ~/.ssh/<key_name> <user_name>@<ip>
+key_name=""                                     # a key under ~/.ssh, or the key file's own path when it has a "/"
+user_name=""                                    # login user; empty: ssh's default
+ip=""                                           # required: server address (ip or host name)

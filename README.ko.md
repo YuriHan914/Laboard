@@ -11,8 +11,8 @@
 </p>
 
 <p align="center">
-  <a href="README.ko.md"><img src="https://img.shields.io/badge/%F0%9F%87%B0%F0%9F%87%B7_%ED%95%9C%EA%B5%AD%EC%96%B4-9fe870?style=for-the-badge" alt="한국어"/></a>
-  <a href="README.md"><img src="https://img.shields.io/badge/%F0%9F%87%BA%F0%9F%87%B8_English-e8ebe6?style=for-the-badge" alt="English"/></a>
+  <a href="https://github.com/YuriHan914/Laboard/blob/master/README.ko.md"><img src="https://img.shields.io/badge/%F0%9F%87%B0%F0%9F%87%B7_%ED%95%9C%EA%B5%AD%EC%96%B4-9fe870?style=for-the-badge" alt="한국어"/></a>
+  <a href="https://github.com/YuriHan914/Laboard/blob/master/README.md"><img src="https://img.shields.io/badge/%F0%9F%87%BA%F0%9F%87%B8_English-e8ebe6?style=for-the-badge" alt="English"/></a>
 </p>
 
 <p align="center">
@@ -22,7 +22,7 @@
   <a href="https://www.sqlalchemy.org/"><img src="https://img.shields.io/badge/SQLAlchemy-2.0%2B-D71F00?style=for-the-badge&logo=sqlalchemy&logoColor=white" alt="SQLAlchemy 2.0+"/></a>
   <a href="https://github.com/lutzroeder/netron"><img src="https://img.shields.io/badge/Netron-8.0%2B-555555?style=for-the-badge" alt="Netron 8.0+"/></a>
   <a href="https://onnx.ai/"><img src="https://img.shields.io/badge/ONNX-1.15%2B-005CED?style=for-the-badge&logo=onnx&logoColor=white" alt="ONNX 1.15+"/></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge" alt="License: MIT"/></a>
+  <a href="https://github.com/YuriHan914/Laboard/blob/master/LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge" alt="License: MIT"/></a>
 </p>
 
 
@@ -111,7 +111,7 @@ pip로 설치되지 않습니다. 쓰는 CLI를 직접 설치해 `PATH`에 두�
 - **묻지 않고 접속:** Laboard가 뒤에서 실행하므로 비밀번호를 묻지 않고 접속되어야 합니다. 서버 host key가
   등록되도록 한 번은 직접 접속해 두세요.
 - **접속 정보**(인스턴스 이름, zone, 사용자, IP 등)는 프로젝트 파일의 `[gcloud]`, `[az]`, `[aws]`, `[ssh]` 섹션에
-  적습니다. 섹션별 key는 [`template.toml`](template.toml)에 있습니다.
+  적습니다. 섹션별 key는 [`template.toml`](https://github.com/YuriHan914/Laboard/blob/master/template.toml)에 있습니다.
 
 ---
 
@@ -137,79 +137,8 @@ python -m laboard  --project my_project.toml  #입력된 toml로 실행
 
 toml 파일은 필요한 부분한 입력하고 필요없는 부분은 비워두면 됩니다.
 1. Laboard를 실행 후 **Setting**에서 **New**를 누르고, 섹션별 입력 창을 채운 뒤 저장
-2. 또는 아래 [`template.toml`](template.toml)을 복사하여 내용 입력 후 저장
-    <details>
-    <summary>template.toml</summary>
-
-      ```
-      # Laboard project file.
-      # One raw data source ([Data]) is shared by every task; each task has its own labels ([Label]) and predictions
-      # ([Prediction]). Fill in the keys your data uses and leave the others empty (""). Paths are absolute, or relative
-      # to this file. Settings shows every key below with a description of what to put in it. Names are read in any case.
-
-      [Project]
-      Name = ""                                       # project name; empty: the root folder's name
-      Root = ""                                       # folder of the project's git repository
-      Task = "classification,object detection,..."    # one task or several, comma-separated: classification, object detection,
-                                                      # instance segmentation, semantic segmentation, panoptic segmentation,
-                                                      # anomaly detection, pose-estimation
-      DB = False                                      # True when [Data], [Label] or [Prediction] uses Type = "DB"
-
-      [DB]                                            # database connection, shown and used when [Project] DB = True
-      DB = ""                                         # supabase
-      DB_ip = ""                                      # e.g. "http://127.0.0.1:54323/" or "postgresql://user:password@host:5432/db"
-
-      [Git]                                           # fallbacks when git can't tell
-      Remote = ""                                     # e.g. "github.com:user/repo.git"
-      Branch = ""                                     # e.g. "main"
-
-      [Path]                                          # each may hold one folder per task, e.g. Results/classification/<model>/
-      Models = ""                                     # folder with model checkpoints
-      Hyperparameter = ""                             # folder with one sub-folder per training run
-      Results = ""                                    # folder with result files
-
-      [Data]                                          # the raw data files, one list for every task
-      Type = ""                                       # CSV | DB
-      File_path = ""                                  # CSV: the csv listing the files
-      Table = ""                                      # DB: table with one row per file
-      Raw = ""                                        # CSV / DB: column with each raw file's path, e.g. "file_path"
-
-      [Label]                                         # ground truth, one column for every task
-      Type = ""                                       # CSV | DB
-      File_path = ""                                  # CSV: the labels csv
-      Table = ""                                      # DB: table with the labels
-      Label = ""                                      # its column; a task column picks each task's row
-
-      [Prediction]                                    # any key can be set for one task as <Task>_<Key>, e.g. Instance_segmentation_Predict
-      Type = ""                                       # CSV | DB
-      File_path = ""                                  # CSV: result file name / glob under Path.Results/<task>
-      Table = ""                                      # DB: table with the predictions
-      Predict = ""                                    # predicted-class column
-      Predict_score = ""                              # score column
-
-
-      [gcloud]                                        # gcloud compute ssh <instance_name> --zone <zone>
-      instance_name="instance name"                   # required: the VM instance's name
-      zone="instance zone"                            # e.g. "us-west1-b"
-
-      [az]                                            # az ssh vm --name <vm_name> --resource-group <resource-group>
-      vm_name="VM name"                               # the Azure VM's name
-      resource-group="resource group"                 # its resource group
-
-      [aws]                                           # sends the public key (EC2 Instance Connect), then ssh -i <private key> <user>@<public ip>
-      instance-id="instance ID"                       # required: e.g. "i-0123456789abcdef0"
-      instance-os-user="ec2-user"                     # required: the login user, e.g. "ec2-user", "ubuntu"
-      ssh-public-key="file://~/.ssh/id_ed25519.pub"   # required: public key; the private key is this file without .pub
-      availability-zone="AZ(zone)"                    # e.g. "us-east-1a"; its region finds the instance's public ip
-
-      [ssh]                                           # ssh -i ~/.ssh/<key_name> <user_name>@<ip>
-      key_name=""                                     # a key under ~/.ssh, or the key file's own path when it has a "/"
-      user_name=""                                    # login user; empty: ssh's default
-      ip=""                                           # required: server address (ip or host name)
-
-
-      ```
-    </details>
+2. 또는 [`template.toml`](https://github.com/YuriHan914/Laboard/blob/master/template.toml)을 복사하여 내용 입력 후 저장
+    
 
     <details>
     <summary>프로젝트 파일 상세 설명</summary>
@@ -313,7 +242,7 @@ toml 파일은 필요한 부분한 입력하고 필요없는 부분은 비워두
 ## 🗂️ Data Format
 
 `[Data] Type = "CSV"` / `"DB"`로 데이터를 읽을 때 csv·테이블에 필요한 열과 라벨 저장 형식입니다.
-전체 설명은 [Data · 데이터 형식](Docs/ko/data.md#데이터-형식-필수-열과-라벨-format)에 있습니다.
+전체 설명은 [Data · 데이터 형식](https://github.com/YuriHan914/Laboard/blob/master/Docs/ko/data.md#데이터-형식-필수-열과-라벨-format)에 있습니다.
 
 - **파일당 한 행:** 라벨 열 하나를 `Label = "label"`로 지정합니다. task가 하나일 때 씁니다.
 - **task당 한 행:** task 열 + 같은 라벨 열 하나를 둡니다. task가 여럿일 때 씁니다. 같은 파일 경로가 여러 행에
@@ -350,15 +279,15 @@ toml 파일은 필요한 부분한 입력하고 필요없는 부분은 비워두
 
 ## 📚 Documentation
 
-페이지별 상세 설명은 [Docs](Docs/README.md)에 있습니다.
+페이지별 상세 설명은 [Docs](https://github.com/YuriHan914/Laboard/tree/master/Docs)에 있습니다.
 
 | 페이지 | 용도 |
 | --- | --- |
-| [Home](Docs/ko/home.md) | 데이터 / 모델 / 최근 run / 결과 요약과 git 기록 |
-| [Data](Docs/ko/data.md) | 모든 데이터 파일과 split, 레이블을 보고 모델 예측과 비교 |
-| [Model](Docs/ko/model.md) | 모델 파일의 Netron 그래프, 속성, 레이어별 파라미터 |
-| [Hyperparameter](Docs/ko/hyperparameter.md) | 학습 run의 진행 상황과 모든 하이퍼파라미터 |
-| [Result](Docs/ko/result.md) | csv / jsonl / TensorBoard 차트, 곡선 비교, 표, 로그, 이미지 |
-| [Setting](Docs/ko/setting.md) | 프로젝트 파일 로드, 감지된 항목, 테마 전환, Result·Hyperparameter 표의 페이지당 행 수, 프로젝트 파일 작성법 |
+| [Home](https://github.com/YuriHan914/Laboard/blob/master/Docs/ko/home.md) | 데이터 / 모델 / 최근 run / 결과 요약과 git 기록 |
+| [Data](https://github.com/YuriHan914/Laboard/blob/master/Docs/ko/data.md) | 모든 데이터 파일과 split, 레이블을 보고 모델 예측과 비교 |
+| [Model](https://github.com/YuriHan914/Laboard/blob/master/Docs/ko/model.md) | 모델 파일의 Netron 그래프, 속성, 레이어별 파라미터 |
+| [Hyperparameter](https://github.com/YuriHan914/Laboard/blob/master/Docs/ko/hyperparameter.md) | 학습 run의 진행 상황과 모든 하이퍼파라미터 |
+| [Result](https://github.com/YuriHan914/Laboard/blob/master/Docs/ko/result.md) | csv / jsonl / TensorBoard 차트, 곡선 비교, 표, 로그, 이미지 |
+| [Setting](https://github.com/YuriHan914/Laboard/blob/master/Docs/ko/setting.md) | 프로젝트 파일 로드, 감지된 항목, 테마 전환, Result·Hyperparameter 표의 페이지당 행 수, 프로젝트 파일 작성법 |
 
 

@@ -9,8 +9,8 @@
 </p>
 
 <p align="center">
-  <a href="README.ko.md"><img src="https://img.shields.io/badge/%F0%9F%87%B0%F0%9F%87%B7_%ED%95%9C%EA%B5%AD%EC%96%B4-9fe870?style=for-the-badge" alt="한국어"/></a>
-  <a href="README.md"><img src="https://img.shields.io/badge/%F0%9F%87%BA%F0%9F%87%B8_English-e8ebe6?style=for-the-badge" alt="English"/></a>
+  <a href="https://github.com/YuriHan914/Laboard/blob/master/README.ko.md"><img src="https://img.shields.io/badge/%F0%9F%87%B0%F0%9F%87%B7_%ED%95%9C%EA%B5%AD%EC%96%B4-9fe870?style=for-the-badge" alt="한국어"/></a>
+  <a href="https://github.com/YuriHan914/Laboard/blob/master/README.md"><img src="https://img.shields.io/badge/%F0%9F%87%BA%F0%9F%87%B8_English-e8ebe6?style=for-the-badge" alt="English"/></a>
 </p>
 
 <p align="center">
@@ -20,7 +20,7 @@
   <a href="https://www.sqlalchemy.org/"><img src="https://img.shields.io/badge/SQLAlchemy-2.0%2B-D71F00?style=for-the-badge&logo=sqlalchemy&logoColor=white" alt="SQLAlchemy 2.0+"/></a>
   <a href="https://github.com/lutzroeder/netron"><img src="https://img.shields.io/badge/Netron-8.0%2B-555555?style=for-the-badge" alt="Netron 8.0+"/></a>
   <a href="https://onnx.ai/"><img src="https://img.shields.io/badge/ONNX-1.15%2B-005CED?style=for-the-badge&logo=onnx&logoColor=white" alt="ONNX 1.15+"/></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge" alt="License: MIT"/></a>
+  <a href="https://github.com/YuriHan914/Laboard/blob/master/LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge" alt="License: MIT"/></a>
 </p>
 
 
@@ -115,7 +115,7 @@ once yourself.
 - **No prompts:** Laboard runs them in the background, so the login must work without a password prompt. Connect
   to the server once by hand so its host key is known.
 - **Login details** (instance name, zone, user, ip, …) go in the project file's `[gcloud]`, `[az]`, `[aws]` or
-  `[ssh]` section; [`template.toml`](template.toml) lists the keys of each.
+  `[ssh]` section; [`template.toml`](https://github.com/YuriHan914/Laboard/blob/master/template.toml) lists the keys of each.
 
 ---
 
@@ -141,79 +141,7 @@ python -m laboard  --project my_project.toml  # runs with the given toml
 
 Fill in only the parts you need and leave the rest empty.
 1. Start Laboard, click **New** in **Setting**, fill in the form of each section and save
-2. Or copy [`template.toml`](template.toml) below, fill it in and save
-    <details>
-    <summary>template.toml</summary>
-
-      ```toml
-      # Laboard project file.
-      # One raw data source ([Data]) is shared by every task; each task has its own labels ([Label]) and predictions
-      # ([Prediction]). Fill in the keys your data uses and leave the others empty (""). Paths are absolute, or relative
-      # to this file. Settings shows every key below with a description of what to put in it. Names are read in any case.
-
-      [Project]
-      Name = ""                                       # project name; empty: the root folder's name
-      Root = ""                                       # folder of the project's git repository
-      Task = "classification,object detection,..."    # one task or several, comma-separated: classification, object detection,
-                                                      # instance segmentation, semantic segmentation, panoptic segmentation,
-                                                      # anomaly detection, pose-estimation
-      DB = False                                      # True when [Data], [Label] or [Prediction] uses Type = "DB"
-
-      [DB]                                            # database connection, shown and used when [Project] DB = True
-      DB = ""                                         # supabase
-      DB_ip = ""                                      # e.g. "http://127.0.0.1:54323/" or "postgresql://user:password@host:5432/db"
-
-      [Git]                                           # fallbacks when git can't tell
-      Remote = ""                                     # e.g. "github.com:user/repo.git"
-      Branch = ""                                     # e.g. "main"
-
-      [Path]                                          # each may hold one folder per task, e.g. Results/classification/<model>/
-      Models = ""                                     # folder with model checkpoints
-      Hyperparameter = ""                             # folder with one sub-folder per training run
-      Results = ""                                    # folder with result files
-
-      [Data]                                          # the raw data files, one list for every task
-      Type = ""                                       # CSV | DB
-      File_path = ""                                  # CSV: the csv listing the files
-      Table = ""                                      # DB: table with one row per file
-      Raw = ""                                        # CSV / DB: column with each raw file's path, e.g. "file_path"
-
-      [Label]                                         # ground truth, one column for every task
-      Type = ""                                       # CSV | DB
-      File_path = ""                                  # CSV: the labels csv
-      Table = ""                                      # DB: table with the labels
-      Label = ""                                      # its column; a task column picks each task's row
-
-      [Prediction]                                    # any key can be set for one task as <Task>_<Key>, e.g. Instance_segmentation_Predict
-      Type = ""                                       # CSV | DB
-      File_path = ""                                  # CSV: result file name / glob under Path.Results/<task>
-      Table = ""                                      # DB: table with the predictions
-      Predict = ""                                    # predicted-class column
-      Predict_score = ""                              # score column
-
-
-      [gcloud]                                        # gcloud compute ssh <instance_name> --zone <zone>
-      instance_name="instance name"                   # required: the VM instance's name
-      zone="instance zone"                            # e.g. "us-west1-b"
-
-      [az]                                            # az ssh vm --name <vm_name> --resource-group <resource-group>
-      vm_name="VM name"                               # the Azure VM's name
-      resource-group="resource group"                 # its resource group
-
-      [aws]                                           # sends the public key (EC2 Instance Connect), then ssh -i <private key> <user>@<public ip>
-      instance-id="instance ID"                       # required: e.g. "i-0123456789abcdef0"
-      instance-os-user="ec2-user"                     # required: the login user, e.g. "ec2-user", "ubuntu"
-      ssh-public-key="file://~/.ssh/id_ed25519.pub"   # required: public key; the private key is this file without .pub
-      availability-zone="AZ(zone)"                    # e.g. "us-east-1a"; its region finds the instance's public ip
-
-      [ssh]                                           # ssh -i ~/.ssh/<key_name> <user_name>@<ip>
-      key_name=""                                     # a key under ~/.ssh, or the key file's own path when it has a "/"
-      user_name=""                                    # login user; empty: ssh's default
-      ip=""                                           # required: server address (ip or host name)
-
-
-      ```
-    </details>
+2. Or copy [`template.toml`](https://github.com/YuriHan914/Laboard/blob/master/template.toml)fill it in and save
 
     <details>
     <summary>Project file reference</summary>
@@ -318,7 +246,7 @@ Fill in only the parts you need and leave the rest empty.
 ## 🗂️ Data Format
 
 The columns a csv / table needs when data is read with `[Data] Type = "CSV"` / `"DB"`, and how labels are stored.
-The full description is in [Data · Data format](Docs/en/data.md#data-format-required-columns-and-label-values).
+The full description is in [Data · Data format](https://github.com/YuriHan914/Laboard/blob/master/Docs/en/data.md#data-format-required-columns-and-label-values).
 
 - **One row per file:** one label column, named with `Label = "label"`. Fits a single task.
 - **One row per task:** a task column + the same one label column, for several tasks. A table where the same file
@@ -356,13 +284,13 @@ The full description is in [Data · Data format](Docs/en/data.md#data-format-req
 
 ## 📚 Documentation
 
-Each page has a detailed guide in [Docs](Docs/README.md).
+Each page has a detailed guide in [Docs](https://github.com/YuriHan914/Laboard/blob/master/Docs/README.md).
 
 | Page | What it is for |
 | --- | --- |
-| [Home](Docs/en/home.md) | Data / model / latest run / result summaries, next to the git history |
-| [Data](Docs/en/data.md) | Browse every data file, its split and label, and compare it with model predictions |
-| [Model](Docs/en/model.md) | A model file's graph in Netron, its properties and parameters by layer |
-| [Hyperparameter](Docs/en/hyperparameter.md) | A training run's progress and all of its hyperparameters |
-| [Result](Docs/en/result.md) | Charts from csv / jsonl / TensorBoard, curve comparison, tables, logs and images |
-| [Setting](Docs/en/setting.md) | Load a project file, see what was detected, switch the theme, set Result and Hyperparameter table rows per page; the project file reference |
+| [Home](https://github.com/YuriHan914/Laboard/blob/master/Docs/en/home.md) | Data / model / latest run / result summaries, next to the git history |
+| [Data](https://github.com/YuriHan914/Laboard/blob/master/Docs/en/data.md) | Browse every data file, its split and label, and compare it with model predictions |
+| [Model](https://github.com/YuriHan914/Laboard/blob/master/Docs/en/model.md) | A model file's graph in Netron, its properties and parameters by layer |
+| [Hyperparameter](https://github.com/YuriHan914/Laboard/blob/master/Docs/en/hyperparameter.md) | A training run's progress and all of its hyperparameters |
+| [Result](https://github.com/YuriHan914/Laboard/blob/master/Docs/en/result.md) | Charts from csv / jsonl / TensorBoard, curve comparison, tables, logs and images |
+| [Setting](https://github.com/YuriHan914/Laboard/blob/master/Docs/en/setting.md) | Load a project file, see what was detected, switch the theme, set Result and Hyperparameter table rows per page; the project file reference |
