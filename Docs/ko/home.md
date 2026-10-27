@@ -1,5 +1,5 @@
 # Home
-[English](../en/home.md) | **한국어**
+
 
 <table>
   <tr>

@@ -6,7 +6,7 @@
 
 
 
-[English](../en/setting.md) | **한국어**
+
 
 Setting 페이지에서 할 수 있는 일:
 

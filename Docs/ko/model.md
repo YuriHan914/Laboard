@@ -6,7 +6,7 @@
 
 
 
-[English](../en/model.md) | **한국어**
+
 
 Model 페이지는 모델 파일의 그래프를 [Netron](https://netron.app)으로 보여 주고, 옆에 파라미터 수와 파일
 속성을 표시합니다. 모든 정보를 파일 자체에서 읽으므로 GPU나 PyTorch가 필요 없습니다.

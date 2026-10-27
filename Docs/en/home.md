@@ -8,7 +8,6 @@
 </table>
 
 
-**English** | [한국어](../ko/home.md)
 
 Home is the project at a glance. The centre has four summary cards: Data, Model, Latest hyperparameter and Result.
 The right side shows the project's git history. Each card has an **Open** link that jumps to its page.

@@ -6,8 +6,6 @@
 
 
 
-**English** | [한국어](../ko/data.md)
-
 The Data page is a viewer for every file in the dataset. For each file you can see:
 
 - the file itself

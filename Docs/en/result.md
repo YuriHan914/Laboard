@@ -5,8 +5,6 @@
 </p>
 
 
-**English** | [한국어](../ko/result.md)
-
 The Result page opens any file under `[Path] Results`:
 
 - metric files become charts and tables

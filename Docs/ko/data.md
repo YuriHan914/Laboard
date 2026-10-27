@@ -1,5 +1,5 @@
 # Data
-[English](../en/data.md) | **한국어**
+
 
 <p align="center">
   <img src="../assets/LABOARD_DATA.png" alt="Data" width="900"/>

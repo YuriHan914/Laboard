@@ -6,7 +6,7 @@
 
 
 
-[English](../en/hyperparameter.md) | **한국어**
+
 
 Hyperparameter 페이지는 학습 run 하나의 하이퍼파라미터 세트에 대해 다음을 보여 줍니다.
 

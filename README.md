@@ -1,15 +1,16 @@
 # 🧪 Laboard
 
-*[한국어](README.ko.md)*
-
-
-
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="Docs/assets/LABOARD_LOGO_DARK.png"/>
     <img src="Docs/assets/LABOARD_LOGO.png" alt="Laboard" width="136"/>
   </picture>
+</p>
+
+<p align="center">
+  <a href="README.ko.md"><img src="https://img.shields.io/badge/%F0%9F%87%B0%F0%9F%87%B7_%ED%95%9C%EA%B5%AD%EC%96%B4-9fe870?style=for-the-badge" alt="한국어"/></a>
+  <a href="README.md"><img src="https://img.shields.io/badge/%F0%9F%87%BA%F0%9F%87%B8_English-e8ebe6?style=for-the-badge" alt="English"/></a>
 </p>
 
 

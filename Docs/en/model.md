@@ -6,8 +6,6 @@
 
 
 
-**English** | [한국어](../ko/model.md)
-
 The Model page shows a model file's graph in [Netron](https://netron.app), next to its parameter counts
 and file properties. Laboard reads all of this from the file itself, so no GPU and no PyTorch are needed.
 

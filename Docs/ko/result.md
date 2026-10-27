@@ -6,7 +6,7 @@
 
 
 
-[English](../en/result.md) | **한국어**
+
 
 Result 페이지는 `[Path] Results` 아래의 모든 파일을 엽니다.
 

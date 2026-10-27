@@ -6,7 +6,6 @@
 
 
 
-**English** | [한국어](../ko/hyperparameter.md)
 
 The Hyperparameter page shows one training run's hyperparameter set:
 

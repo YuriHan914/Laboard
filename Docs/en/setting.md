@@ -6,7 +6,6 @@
 
 
 
-**English** | [한국어](../ko/setting.md)
 
 On the Setting page you can:
 
