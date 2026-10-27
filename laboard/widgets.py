@@ -3,11 +3,11 @@ import itertools
 import re
 
 from PyQt6 import sip
-from PyQt6.QtCore import QEvent, QObject, QPointF, QRect, QRectF, QSize, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QFontMetrics, QPainter, QPainterPath, QPen
+from PyQt6.QtCore import QEvent, QObject, QPoint, QPointF, QRect, QRectF, QRegularExpression, QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QColor, QFontMetrics, QPainter, QPainterPath, QPen, QRegularExpressionValidator
 from PyQt6.QtSvg import QSvgRenderer
-from PyQt6.QtWidgets import (QApplication, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLayout, QLineEdit, QPushButton,
-                             QScrollArea, QSizePolicy, QVBoxLayout, QWidget, QWidgetItem)
+from PyQt6.QtWidgets import (QApplication, QComboBox, QFrame, QGraphicsDropShadowEffect, QGridLayout, QHBoxLayout, QLabel,
+                             QLayout, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget, QWidgetItem)
 
 from . import theme
 from .theme import T, font, qc
@@ -67,6 +67,7 @@ def clear_layout(layout):
     while layout.count():
         item = layout.takeAt(0)
         if item.widget():
+            item.widget().hide()  # deleted only later: don't let it show meanwhile
             item.widget().deleteLater()
         elif item.layout():
             clear_layout(item.layout())
@@ -109,6 +110,10 @@ class Box(QFrame):
             self.clicked.emit()
         super().mouseReleaseEvent(e)
 
+    def takes_clicks(self):
+        """Whether a click on it does something: then the text in it is not selectable (``Label``)."""
+        return self.receivers(self.clicked) > 0
+
 
 def card(*items, pad=(20, 20, 20, 20), spacing=0, radius=16, bg="surf"):
     return Box(bg=bg, radius=radius, layout=vbox(*items, spacing=spacing, margins=pad))
@@ -116,12 +121,19 @@ def card(*items, pad=(20, 20, 20, 20), spacing=0, radius=16, bg="surf"):
 
 # ------------------------------------------------------------------ text
 class Label(QLabel):
+    """Text. It can be selected with the mouse and copied (Ctrl+C, or the right-click menu) unless it sits in
+    something that takes clicks (a button, a list row, a tab: ``Box.takes_clicks``), where a press must reach that.
+    ``select`` True / False decides it outright instead."""
+    _selected = None  # the label last selected in: starting a selection in another clears it
+    _clipboard_hooked = False
+
     def __init__(self, text="", size=14, weight=400, color="ink", mono=False, display=False, spacing=0.0,
-                 lh=None, wrap=False, rich=False, align=None, elide=False, select=False):
+                 lh=None, wrap=False, rich=False, align=None, elide=False, select=None):
         super().__init__(text)
         self.setFont(font(size, weight, mono=mono, display=display, spacing=spacing))
         self._color = color
-        self.setStyleSheet(f"color:{col(color)};background:transparent;")
+        self.setStyleSheet(f"color:{col(color)};background:transparent;selection-background-color:{T.sel};"
+                           f"selection-color:{T.selfg};")
         self.setTextFormat(Qt.TextFormat.RichText if rich else Qt.TextFormat.PlainText)
         self._elide = elide
         if wrap:
@@ -130,8 +142,9 @@ class Label(QLabel):
             self.setFixedHeight(lh)
         if align is not None:
             self.setAlignment(align | Qt.AlignmentFlag.AlignVCenter)
+        self._select = select
         if select:
-            self.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            self._selectable(True)
         if elide:
             self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
             self.setToolTip(text)
@@ -141,14 +154,47 @@ class Label(QLabel):
             return QSize(0, super().minimumSizeHint().height())
         return super().minimumSizeHint()
 
+    def _selectable(self, on):
+        flags = Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.TextSelectableByKeyboard
+        self.setTextInteractionFlags(flags if on else Qt.TextInteractionFlag.NoTextInteraction)
+        self.setFocusPolicy(Qt.FocusPolicy.ClickFocus if on else Qt.FocusPolicy.NoFocus)  # focused, Ctrl+C copies
+        if on and not Label._clipboard_hooked:
+            Label._clipboard_hooked = True
+            QApplication.clipboard().dataChanged.connect(_unbreak_clipboard)
+
+    def showEvent(self, e):
+        if self._select is None:  # decided where it is shown: the parents are known by now
+            w, clicks = self.parentWidget(), False
+            while w is not None and not clicks:
+                clicks = isinstance(w, Box) and w.takes_clicks()
+                w = w.parentWidget()
+            self._selectable(not clicks)
+        super().showEvent(e)
+
+    def mousePressEvent(self, e):
+        last = Label._selected
+        if last is not None and last is not self and not sip.isdeleted(last) and last.hasSelectedText():
+            last.setSelection(0, 0)  # one selection at a time, as in a document
+        Label._selected = self
+        super().mousePressEvent(e)
+
     def paintEvent(self, e):
-        if not self._elide:
+        if not self._elide or self.hasSelectedText():  # selected: the whole text, as the selection measures it
             return super().paintEvent(e)
         p = QPainter(self)
         p.setFont(self.font())
         p.setPen(qc(col(self._color)))
         txt = self.fontMetrics().elidedText(self.text(), Qt.TextElideMode.ElideRight, self.width())
         p.drawText(self.rect(), int(self.alignment() | Qt.AlignmentFlag.AlignVCenter), txt)
+
+
+def _unbreak_clipboard():
+    """Copied text loses the zero-width spaces that let long values wrap anywhere (``breakable``): pasted, they
+    would make a path or value that only looks the same."""
+    cb = QApplication.clipboard()
+    text = cb.text()
+    if "\u200b" in text:
+        cb.setText(text.replace("\u200b", ""))
 
 
 def mono_span(text, color="ink", size=None):
@@ -303,18 +349,19 @@ class Button(QPushButton):
     """Wise DS Button: secondary (soft fill), primary (green) or tertiary (text only), sm / md."""
 
     @staticmethod
-    def _metrics(size, compact=False):
-        """(font size, (v pad, h pad), height) for a size."""
-        fs, pad = (13, (4, 14)) if compact else (14, (8, 16)) if size == "sm" else (16, (12, 24))
+    def _metrics(size, compact=False, pad=None):
+        """(font size, (v pad, h pad), height) for a size; ``pad`` instead of the size's own padding."""
+        fs, own = (13, (4, 14)) if compact else (14, (8, 16)) if size == "sm" else (16, (12, 24))
+        pad = pad or own
         return fs, pad, pad[0] * 2 + (20 if fs <= 14 else 24)
 
     @staticmethod
-    def height_for(size, compact=False):
-        return Button._metrics(size, compact)[2]
+    def height_for(size, compact=False, pad=None):
+        return Button._metrics(size, compact, pad)[2]
 
-    def __init__(self, text, variant="secondary", size="sm", on_click=None, compact=False):
+    def __init__(self, text, variant="secondary", size="sm", on_click=None, compact=False, pad=None):
         super().__init__(text)
-        fs, pad, hgt = self._metrics(size, compact)
+        fs, pad, hgt = self._metrics(size, compact, pad)
         self.setFont(font(fs, 600))
         bg, hover, fg = {"primary": (theme.WISE_GREEN, theme.WISE_GREEN_PALE, theme.INK),
                          "tertiary": ("transparent", T.surf2, T.ink)}.get(variant, (T.surf2, T.grid, T.ink))
@@ -386,6 +433,244 @@ class Combo(QComboBox):
                            f"QComboBox QAbstractItemView{{background:{T.surf};color:{T.ink};selection-background-color:{T.sel};"
                            f"selection-color:{T.selfg};border:1px solid {T.line};}}")
         self.currentIndexChanged.connect(lambda i: on_change(self.itemData(i)))
+
+
+class MenuButton(Box):
+    """A button in the drop-down field style: ``text`` and a chevron in a bordered field. A click calls ``on_open()``,
+    which opens a ``Popover`` under it; ``opened(True / False)`` makes it look pressed (chevron up) meanwhile."""
+
+    def __init__(self, text, on_open, min_width=120, pad=(16, 10, 14, 10), gap=12):
+        super().__init__(bg="surf", radius=12, border=f"1px solid {T.ink}", hover="surf2")
+        self.chev = Chevron("ink", 90)
+        self.setLayout(hbox((Label(text, 14, 600, lh=20), 1), gap, self.chev, margins=pad,
+                            align=Qt.AlignmentFlag.AlignVCenter))
+        self.setMinimumWidth(min_width)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.clicked.connect(on_open)
+
+    def opened(self, on):
+        """Look pressed (chevron up) while its popover is open."""
+        self.restyle(bg="surf2" if on else "surf")
+        self.chev.rotation = -90 if on else 90
+        self.chev.update()
+
+    def pop(self, content, **kw):
+        """Open ``content`` in a ``Popover`` under its right edge, looking pressed until it closes."""
+        pop = Popover(self, content, right=True, on_close=lambda: sip.isdeleted(self) or self.opened(False), **kw)
+        self.opened(True)
+        pop.show()
+        return pop
+
+
+class Select(MenuButton):
+    """Drop-down in the prototype's style: the value and a chevron in a field; a click opens the options in a
+    list under its right edge, the current one ticked. Calls ``on_change(key)`` with the chosen option's key."""
+
+    def __init__(self, options, current, on_change, min_width=120):
+        super().__init__(dict(options).get(current, ""), self.open, min_width)
+        self.options, self.current, self.on_change = options, current, on_change
+
+    def open(self):
+        def choose(key):
+            pop.done(lambda: key != self.current and self.on_change(key))
+
+        rows = vbox(*[menu_item(text, lambda k=key: choose(k), on=key == self.current) for key, text in self.options],
+                     margins=(4, 4, 4, 4))
+        pop = self.pop(rows, min_width=max(120, self.width()))
+
+
+class Popover(QFrame):
+    """A panel with a shadow 6px under ``anchor``, its left edge under the anchor's (``right``: its right edge);
+    a popup, so a click outside it or Esc closes it. ``content``: the panel's layout. ``on_close`` once it closes."""
+    PAD = (16, 0, 16, 32)  # room around the panel for its shadow
+    _open = set()  # held while open: a parentless popup only referenced from its own items' callbacks would be
+    # deleted by Python's garbage collector, closing it at some later moment
+
+    def __init__(self, anchor, content, right=False, min_width=0, on_close=None):
+        super().__init__(None, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint | Qt.WindowType.NoDropShadowWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self.on_close = on_close
+        panel = Box(bg="surf", radius=12, border=f"1px solid {T.line}", layout=content)
+        panel.setGraphicsEffect(QGraphicsDropShadowEffect(blurRadius=40, offset=QPointF(0, 12), color=QColor(14, 15, 12, 61)))
+        panel.setMinimumWidth(min_width)
+        self.setLayout(vbox(panel, margins=self.PAD))
+        self.adjustSize()
+        at = anchor.mapToGlobal(QPoint(anchor.width() if right else 0, anchor.height() + 6))
+        self.move(at.x() - self.width() + self.PAD[2] if right else at.x() - self.PAD[0], at.y() - self.PAD[1])
+
+    def showEvent(self, e):
+        Popover._open.add(self)
+        super().showEvent(e)
+
+    def hideEvent(self, e):
+        Popover._open.discard(self)
+        if self.on_close:
+            self.on_close()
+        super().hideEvent(e)
+
+    def done(self, then=None):
+        """Close, then call ``then``: both once the click being handled is over (a popup closed inside its own
+        click leaves Qt closing the next one as soon as it opens)."""
+        QTimer.singleShot(0, lambda: (self.close(), then and then()))
+
+
+def menu_item(text, on_click, on=False, enabled=True, mono=False):
+    """A row of a popover's list: ``on`` (the current choice) shaded and ticked; not ``enabled``, greyed and inert."""
+    row = hbox(Label(text, 14, 600 if on else 400, "selfg" if on else "ink" if enabled else "mute", mono=mono, lh=20),
+               "stretch", 12, Stroke(TICK, 12, "selfg") if on else None, margins=(12, 8, 12, 8),
+               align=Qt.AlignmentFlag.AlignVCenter)
+    return Box(bg="sel" if on else None, radius=8, hover="surf2" if enabled and not on else None, layout=row,
+               on_click=on_click if enabled else None)
+
+
+class ClickTrap(QWidget):
+    """A plain container whose clicks stop at it: inside a card that folds when clicked, its buttons (and the gaps
+    between them) leave the card as it is."""
+
+    def mousePressEvent(self, e):
+        e.accept()
+
+    def mouseReleaseEvent(self, e):
+        e.accept()
+
+
+TICK = ((2, 6.2), (4.6, 8.8), (10, 3.4))  # 12px check mark
+ARROW_LEFT, ARROW_RIGHT = ((8.5, 3), (4.5, 7), (8.5, 11)), ((5.5, 3), (9.5, 7), (5.5, 11))  # 14px
+CROSS = ((2, 2), (8, 8), None, (8, 2), (2, 8))  # 10px
+
+
+class Stroke(QWidget):
+    """A ``size`` px icon drawn as rounded lines through ``points`` (an svg path of M / L only; None starts a new
+    line, like M). ``circle`` (cx, cy, r) adds a ring."""
+
+    def __init__(self, points, size=12, color="ink", width=1.8, circle=None):
+        super().__init__()
+        self.points, self.color, self.width_, self.circle = points, color, width, circle
+        self.setFixedSize(size, size)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(QPen(qc(col(self.color)), self.width_, cap=Qt.PenCapStyle.RoundCap, join=Qt.PenJoinStyle.RoundJoin))
+        path, start = QPainterPath(), True
+        for pt in self.points:
+            if pt is None:
+                start = True
+            elif start:
+                path.moveTo(*pt)
+                start = False
+            else:
+                path.lineTo(*pt)
+        if self.circle:
+            cx, cy, r = self.circle
+            path.addEllipse(QPointF(cx, cy), r, r)
+        p.drawPath(path)
+
+
+class SearchField(Box):
+    """A search box: magnifier, the text, and while there is text a match count (``set_count``) and a clear
+    button. ``on_change(text)`` on every edit."""
+
+    def __init__(self, placeholder, text, on_change, width=300):
+        super().__init__(bg="surf", radius=12, border=f"1px solid {T.ink}")
+        self.input = QLineEdit(text)
+        self.input.setPlaceholderText(placeholder)
+        self.input.setFont(font(14))
+        self.input.setStyleSheet(f"QLineEdit{{border:none;background:transparent;color:{T.ink};padding:0;}}")
+        pal = self.input.palette()
+        pal.setColor(pal.ColorRole.PlaceholderText, qc(T.mute))
+        self.input.setPalette(pal)
+        self.count = Label("", 12, 600, "body", lh=16)
+        self.clear = Box(bg="surf2", radius=12, on_click=lambda: (self.input.clear(), self.input.setFocus()),
+                         layout=hbox(Stroke(CROSS, 10, "ink", 1.6), align=Qt.AlignmentFlag.AlignCenter))
+        self.clear.setFixedSize(24, 24)
+        self.setLayout(hbox(Stroke(((11, 11), (14.5, 14.5)), 16, "body", 1.6, circle=(7, 7, 5)), (self.input, 1),
+                            self.count, self.clear, spacing=8, margins=(12, 0, 6, 0), align=Qt.AlignmentFlag.AlignVCenter))
+        self.setFixedSize(width, 38)
+        self.input.textChanged.connect(on_change)
+        self.set_count(None)
+
+    def sizeHint(self):
+        return self.minimumSize()  # its fixed size: a layout placing it by its hint (Flow) leaves it room for all of it
+
+    def set_count(self, n):
+        """``n`` matches next to the text; None hides the count and the clear button (no text)."""
+        self.count.setVisible(n is not None)
+        self.clear.setVisible(n is not None)
+        if n is not None:
+            self.count.setText(f"{n:,} match{'' if n == 1 else 'es'}")
+
+
+class Pager(ClickTrap):
+    """Page controls under a table, after a top rule: rows a page (set in Setting); Previous, the page numbers
+    (first, last, and the ones next to the current, gaps as "…") and Next; and a page box with Go (or Enter).
+    ``on_page(n)`` asks for page ``n`` (from 0, kept in range); the owner shows it and calls ``set_page(n)``."""
+
+    def __init__(self, per, total, on_page):
+        super().__init__()
+        self.per, self.on_page, self.page = per, on_page, 0
+        self.set_total(total)
+        self.nav = hbox(spacing=4, align=Qt.AlignmentFlag.AlignVCenter)
+        self.input = QLineEdit()
+        self.input.setValidator(QRegularExpressionValidator(QRegularExpression(r"\d{0,6}")))  # any page number: Enter / Go keep it in range
+        self.input.setFixedWidth(44)
+        self.input.setFont(font(14, 600))
+        self.input.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.input.setStyleSheet(f"QLineEdit{{border:none;background:transparent;color:{T.ink};padding:0 4px 0 10px;}}")
+        self.input.returnPressed.connect(self._typed)
+        go = Box(bg="tab", radius=15, on_click=self._typed,
+                 layout=hbox(Label("Go", 13, 600, "tabfg", lh=18), margins=(14, 0, 14, 0), align=Qt.AlignmentFlag.AlignVCenter))
+        go.setFixedHeight(30)
+        field = Box(bg="surf", radius=19, border=f"1px solid {T.ink}",
+                    layout=hbox(self.input, go, margins=(3, 3, 3, 3), align=Qt.AlignmentFlag.AlignVCenter))
+        field.setFixedHeight(38)
+        rule = Box(bg="line", radius=0)
+        rule.setFixedSize(1, 24)
+        info = elided(f"{per} rows per page · change in Setting", 13, 400, "body")
+        self.setLayout(vbox(HLine(), hbox((info, 1), 16, self.nav, 16, rule, 16, field, margins=(18, 12, 18, 12),
+                                          align=Qt.AlignmentFlag.AlignVCenter)))
+
+    def set_total(self, total):
+        """``total`` rows to page through (``pages`` follows); show a page with ``set_page`` next."""
+        self.pages = max(1, -(-total // self.per))
+
+    def set_page(self, n):
+        """Show page ``n`` as the current one."""
+        self.page = n
+        clear_layout(self.nav)
+        self.nav.addWidget(self._pill([Stroke(ARROW_LEFT, 14, "ink" if n > 0 else "mute"), 6, "Previous"], n - 1,
+                                      enabled=n > 0, pad=(10, 14)))
+        nums = sorted({k for k in (0, self.pages - 1, n - 1, n, n + 1) if 0 <= k < self.pages})
+        for i, k in enumerate(nums):
+            if i and k - nums[i - 1] > 1:
+                self.nav.addWidget(self._pill(["…"], None, enabled=False))
+            self.nav.addWidget(self._pill([str(k + 1)], k, current=k == n))
+        self.nav.addWidget(self._pill(["Next", 6, Stroke(ARROW_RIGHT, 14, "ink" if n < self.pages - 1 else "mute")], n + 1,
+                                      enabled=n < self.pages - 1, pad=(14, 10)))
+        self.input.setText(str(n + 1))
+
+    def _pill(self, items, to, enabled=True, current=False, pad=(0, 0)):
+        """A 36px round button going to page ``to`` (35px when ``current``, a dark circle); greyed and inert when not
+        ``enabled``."""
+        fg = "tabfg" if current else "ink" if enabled else "mute"
+        items = [Label(it, 14, 600, fg, lh=20) if isinstance(it, str) else it for it in items]
+        live = enabled and not current
+        size = 35 if current else 36
+        b = Box(bg="tab" if current else None, radius=999, hover="surf2" if live else None,
+                on_click=(lambda: self.on_page(to)) if live else None,
+                layout=hbox(*items, margins=(pad[0], 0, pad[1], 0), align=Qt.AlignmentFlag.AlignCenter))
+        b.setFixedHeight(size)
+        b.setMinimumWidth(size)
+        return b
+
+    def _typed(self):
+        n = max(0, min(int(self.input.text() or 1) - 1, self.pages - 1))
+        if n == self.page:
+            self.input.setText(str(n + 1))  # back to the page shown
+        else:
+            self.on_page(n)
 
 
 class Scroll(QScrollArea):
@@ -724,7 +1009,7 @@ def grid(cols, spacing=12, hspacing=None):
 
 
 def link(text, on_click):
-    l = Label(f"<u>{text}</u>", 13, 600, rich=True)
+    l = Label(f"<u>{text}</u>", 13, 600, rich=True, select=False)
     l.setCursor(Qt.CursorShape.PointingHandCursor)
     l.mousePressEvent = lambda e: on_click()
     return l

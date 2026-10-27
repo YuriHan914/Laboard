@@ -1,20 +1,24 @@
 """Files and folders on another machine, read over ssh: a value written ``host:path`` (``gcloud:~/laboard/Runs``,
 ``gcloud:/data/img/0001.jpg``), in the project file or in the file-path column of a data table (csv or db).
 
-How to log in to ``host``, first found:
+How to log in to ``host``: the ``[host]`` section of ``key/ssh.key`` next to the project file. A section holds
+``key = value`` lines or one login command line, and its type is its ``type`` key, else its name:
 
-* ``[SSH] host = "SSH/gcp.key"`` in the project file: a file holding the login command (e.g.
-  ``gcloud compute ssh my-vm --zone us-west1-b`` or ``ssh -i ~/.ssh/key user@1.2.3.4``) or a private key
-  (``ssh -i <file> host``); a value that isn't a file is the command itself;
-* ``SSH/<host>.*`` next to the project file, or the only file in that folder, read the same way;
-* ``ssh host`` (a Host of ~/.ssh/config).
+* ``[gcloud]`` instance_name, zone: ``gcloud compute ssh <instance_name> --zone <zone>``;
+* ``[az]`` vm_name, resource-group: ``az ssh vm --name <vm_name> --resource-group <resource-group>``;
+* ``[aws]`` instance-id, instance-os-user, ssh-public-key, availability-zone: the public key is sent with
+  ``aws ec2-instance-connect send-ssh-public-key``, then ``ssh -i <its private key> <instance-os-user>@<public ip>``;
+* ``[ssh]`` key_name, user_name, ip: ``ssh -i ~/.ssh/<key_name> <user_name>@<ip>``;
+* a command line (``ssh -i ~/.ssh/key user@1.2.3.4``, ``gcloud compute ssh my-vm --zone us-west1-b``, …) is the
+  login itself, in a section of any name.
+
+Any other key is passed on as ``--key value`` (``true``: the bare flag), and ``_`` / ``-`` in key names are the same.
 
 A ``gcloud compute ssh`` login is replaced by the plain ssh it runs (``--dry-run``), and the calls to one host share
 one connection (ControlMaster), so a call after the first takes milliseconds instead of gcloud's seconds.
 
-* ``copy``: a remote file or folder into a temp folder, read like a local one (Path folders, csv files, label and
-  prediction files);
-* ``listing`` / ``stat``: the names, sizes and times of remote data files, without copying them;
+* ``copy``: a remote file or folder into a temp folder, read like a local one (Path folders, csv files);
+* ``stat``: the sizes and times of remote data files, without copying them;
 * ``fetch`` / ``local``: local copies of remote data files, made when a page shows them and kept until Laboard exits.
 
 Nothing on the remote side is changed. ``use`` (on every project load) says which project the hosts are read from.
@@ -35,8 +39,12 @@ REMOTE = re.compile(r"^([\w.@-]{2,}):(?!//)(.+)$")  # host:path; a single letter
 TIMEOUT = 180
 TAR = "tar cf - --dereference --hard-dereference"  # file contents only: a link entry can't be unpacked from a stream
 
-_project = dict(base=Path.cwd(), ssh={})
-_logins = {}  # host → (kind "ssh" | "gcloud", argv, the gcloud login an ssh came from or None)
+KEY_FILE = Path("key", "ssh.key")  # login sections, next to the project file
+SECTION = re.compile(r"^\[([^\[\]]+)\]\s*(#.*)?$")
+OPTION = re.compile(r"^([\w.-]+)\s*=\s*(.*)$")
+
+_project = dict(base=Path.cwd())
+_logins = {}  # host → (kind "ssh" | "gcloud" | "cli", argv, the gcloud login an ssh came from, prepare argv)
 _copies = {}  # (value, options) → local copy, this load
 _origin = {}  # str(local copy) → the host:path it was copied from
 _stats = {}  # remote file → (size, mtime), this load
@@ -53,7 +61,7 @@ def _cache():
 
 @atexit.register
 def _cleanup():
-    for kind, argv, _ in _logins.values():
+    for kind, argv, _, _ in _logins.values():
         if kind == "ssh":  # close the shared connection
             try:
                 subprocess.run(argv[:1] + ["-O", "exit"] + argv[1:], capture_output=True, timeout=5)
@@ -63,11 +71,11 @@ def _cleanup():
         shutil.rmtree(_root, ignore_errors=True)
 
 
-def use(base, ssh_cfg):
-    """The project being loaded: ``base``, its file's folder (where SSH/ is); ``ssh_cfg``, its [SSH] table."""
-    if (base, ssh_cfg) != (_project["base"], _project["ssh"]):
+def use(base):
+    """The project being loaded: ``base``, its file's folder (where key/ssh.key is)."""
+    if base != _project["base"]:
         _logins.clear()
-    _project.update(base=base, ssh=dict(ssh_cfg))
+    _project.update(base=base)
     _copies.clear()
     _stats.clear()
     _absent.clear()
@@ -115,21 +123,111 @@ def _local(p):
 
 
 # ---------------------------------------------------------------- logging in
-def _from_file(f, host):
-    text = f.read_text(errors="replace")
-    return ["ssh", "-i", str(f), host] if "PRIVATE KEY" in text else shlex.split(text, comments=True)
+def _sections(f):
+    """{name: (options, command argv)} of a key file's [name] sections; names and keys in lower case, "_" as "-"."""
+    out, cur = {}, None
+    for line in f.read_text(errors="replace").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if m := SECTION.match(line):
+            cur = out.setdefault(m[1].strip().lower(), ({}, []))
+        elif cur is not None:
+            if m := OPTION.match(line):
+                v = " ".join(shlex.split(m[2], comments=True))
+                cur[0][m[1].lower().replace("_", "-")] = {"true": True, "false": False}.get(v.lower(), v)
+            else:
+                cur[1].extend(shlex.split(line, comments=True))
+    return out
+
+
+def _flags(options, skip=()):
+    """``--key value`` of each option not in ``skip``; true is the bare flag, false is left out."""
+    out = []
+    for k, v in options.items():
+        if k not in skip and v is not False:
+            out += [f"--{k}"] if v is True else [f"--{k}", str(v)]
+    return out
+
+
+def _need(name, options, *keys):
+    missing = [k for k in keys if not options.get(k)]
+    if missing:
+        raise OSError(f"[{name}] in {KEY_FILE}: no {', '.join(missing)}")
+    return [str(options[k]) for k in keys]
+
+
+def _gcloud_login(name, o):
+    (vm,) = _need(name, o, "instance-name")
+    return "gcloud", ["gcloud", "compute", "ssh", vm] + _flags(o, ("type", "instance-name")), None
+
+
+def _az_login(name, o):
+    o = {("name" if k == "vm-name" else k): v for k, v in o.items()}
+    return "cli", ["az", "ssh", "vm"] + _flags(o, ("type",)), None
+
+
+def _aws_login(name, o):
+    """ssh with the instance's key, after the public key is sent (valid 60 s: sent again when a login fails)."""
+    vm, user, pub = _need(name, o, "instance-id", "instance-os-user", "ssh-public-key")
+    pub = pub.removeprefix("file://")
+    key = str(o.get("private-key") or pub.removesuffix(".pub"))
+    region = ["--region", str(o["region"])] if o.get("region") else \
+        ["--region", o["availability-zone"].rstrip("abcdefghijklmnopqrstuvwxyz")] if o.get("availability-zone") else []
+    ip = o.get("host") or o.get("public-ip")
+    if not ip:
+        try:
+            r = subprocess.run(["aws", "ec2", "describe-instances", "--instance-ids", vm, "--output", "text", "--query",
+                                "Reservations[0].Instances[0].PublicIpAddress", *region],
+                               stdin=subprocess.DEVNULL, capture_output=True, timeout=60)
+        except (OSError, subprocess.SubprocessError) as e:
+            raise OSError(f"can't run aws ({e})") from None
+        ip = r.stdout.decode().strip()
+        if r.returncode or ip in ("", "None"):
+            raise OSError(_last(r.stderr) or f"[{name}] {vm} has no public ip")
+    send = {**o, "ssh-public-key": "file://" + str(Path(pub).expanduser())}
+    prepare = ["aws", "ec2-instance-connect", "send-ssh-public-key"] + \
+        _flags(send, ("type", "private-key", "host", "public-ip", "region")) + region
+    return "ssh", ["ssh", "-i", str(Path(key).expanduser()), f"{user}@{ip}"], prepare
+
+
+def _ssh_login(name, o):
+    """``ssh -i ~/.ssh/<key_name> <user_name>@<ip>``; a key_name with a "/" is the key file's own path."""
+    (ip,) = _need(name, o, "ip")
+    key = str(o.get("key-name") or "")
+    key = ["-i", str(Path(key).expanduser() if "/" in key else Path.home() / ".ssh" / key)] if key else []
+    return "ssh", ["ssh", *key, f"{o['user-name']}@{ip}" if o.get("user-name") else str(ip)], None
+
+
+LOGINS = dict(gcloud=_gcloud_login, az=_az_login, aws=_aws_login, ssh=_ssh_login)  # by a section's type
 
 
 def _login(host):
-    """argv that logs in to ``host``, from the project's [SSH] table / SSH folder (see the module doc)."""
-    base, ref = _project["base"], _project["ssh"].get(host.lower())
-    if ref:
-        f = Path(str(ref)).expanduser()
-        f = f if f.is_absolute() else base / f
-        return _from_file(f, host) if f.is_file() else shlex.split(str(ref))
-    keys = sorted(p for p in (base / "SSH").glob("*") if p.is_file())
-    f = next((p for p in keys if p.stem.lower() == host.lower()), keys[0] if len(keys) == 1 else None)
-    return _from_file(f, host) if f else ["ssh", host]
+    """(kind, argv, prepare argv or None) that logs in to ``host``, from its key file section (see the module doc)."""
+    f = _project["base"] / KEY_FILE
+    if not f.is_file():
+        raise OSError(f"no {KEY_FILE} next to the project file for {host}:")
+    section = _sections(f).get(host.lower())
+    if section is None:
+        raise OSError(f"{KEY_FILE} has no [{host}] section")
+    options, command = section
+    if command:
+        tool = Path(command[0]).name
+        return ("gcloud" if tool == "gcloud" else "ssh" if tool == "ssh" else "cli"), command, None
+    kind = str(options.get("type") or host).lower()
+    if kind not in LOGINS:
+        raise OSError(f"[{host}] in {KEY_FILE}: no login command, and type {kind!r} isn't {' / '.join(LOGINS)}")
+    return LOGINS[kind](host, options)
+
+
+def _prepare(host, argv):
+    """Run a login's preparing command (e.g. sending the aws public key)."""
+    try:
+        r = subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as e:
+        raise OSError(f"can't run {argv[0]} ({e})") from None
+    if r.returncode:
+        raise OSError(_last(r.stderr) or f"can't prepare the login to {host}")
 
 
 def _gcloud(argv, *extra):
@@ -146,11 +244,11 @@ def _shared(argv):
 
 def _connection(host):
     if host not in _logins:
-        argv = _login(host)
-        if not argv:
-            raise OSError(f"no login command for {host}")
-        if Path(argv[0]).name != "gcloud":
-            _logins[host] = ("ssh", _shared(argv), None)
+        kind, argv, prepare = _login(host)
+        if prepare:
+            _prepare(host, prepare)
+        if kind != "gcloud":
+            _logins[host] = (kind, _shared(argv) if kind == "ssh" else argv, None, prepare)
         else:
             try:
                 r = subprocess.run(_gcloud(argv, "--dry-run", "--command", "true"), stdin=subprocess.DEVNULL,
@@ -159,9 +257,9 @@ def _connection(host):
             except (OSError, subprocess.SubprocessError):
                 dry = []
             if dry[-2:] == ["--", "true"] and Path(dry[0]).name == "ssh":
-                _logins[host] = ("ssh", _shared(dry[:-2]), argv)
+                _logins[host] = ("ssh", _shared(dry[:-2]), argv, None)
             else:  # no dry run: every call goes through gcloud
-                _logins[host] = ("gcloud", argv, None)
+                _logins[host] = ("gcloud", argv, None, None)
     return _logins[host]
 
 
@@ -173,8 +271,9 @@ def _last(err):
 def _call(host, cmd, data=None, out=None):
     """Run the shell command ``cmd`` on ``host`` (``data`` on its stdin). Returns the CompletedProcess, its stdout
     written to the file ``out`` when given. OSError when the host can't be reached."""
+    prepared = False
     while True:
-        kind, argv, came_from = _connection(host)
+        kind, argv, came_from, prepare = _connection(host)
         full = _gcloud(argv, "--command", cmd) if kind == "gcloud" else argv + ["--", cmd]
         if out:
             out.seek(0)
@@ -187,7 +286,11 @@ def _call(host, cmd, data=None, out=None):
         except OSError as e:
             raise OSError(f"can't run {full[0]} ({e.strerror})") from None
         if r.returncode == 255 and came_from:  # the plain ssh gcloud printed doesn't log in: use gcloud itself
-            _logins[host] = ("gcloud", came_from, None)
+            _logins[host] = ("gcloud", came_from, None, None)
+            continue
+        if r.returncode == 255 and prepare and not prepared:  # e.g. the aws public key expired: send it again
+            _prepare(host, prepare)
+            prepared = True
             continue
         if r.returncode == 255:
             raise OSError(_last(r.stderr) or f"can't log in to {host}")
@@ -243,29 +346,9 @@ def copy(value, exts=None, depth=None, max_size=None):
     return dest / name
 
 
-def listing(value, limit):
-    """[relative path] of the files under the remote folder ``value`` (hidden folders skipped), sorted, at most
-    ``limit``; their sizes and times are kept for ``stat``. Raises OSError like ``copy``."""
-    host, path = split(value)
-    where = shlex.quote(_where(path))
-    cmd = (f"cd {where} 2>/dev/null || {{ echo {shlex.quote('no folder ' + path)} >&2; exit 2; }}; "
-           f"find . -type f -not -path '*/.*' -printf '%P\\t%s\\t%T@\\0' | sort -z | head -z -n {int(limit)}")
-    r = _call(host, cmd)
-    if r.returncode != 0:
-        raise OSError(_last(r.stderr) or f"listing {value} failed ({r.returncode})")
-    out = []
-    for entry in r.stdout.decode(errors="replace").split("\0"):
-        rel, _, rest = entry.rpartition("\t")
-        rel, _, size = rel.rpartition("\t")
-        if rel:
-            _stats[join(value, rel)] = (int(size), float(rest))
-            out.append(rel)
-    return out
-
-
 def stat(paths):
     """{remote file: (size, mtime)} of the remote ``paths`` that exist (others are skipped): one ssh call per
-    host, and none for files ``listing`` or an earlier call of this load saw. Raises OSError like ``copy``."""
+    host, and none for files an earlier call of this load saw. Raises OSError like ``copy``."""
     out, todo = {}, defaultdict(dict)
     for p in paths:
         s = split(p)

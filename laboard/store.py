@@ -45,6 +45,7 @@ RESULT_ROOT = ""
 # [labels] result files: source (folder under results) → dict(file, rel, shows={key: column},
 # by_path={data path: dict(values={key: value})}, by_name={file name: same})
 INFERENCE = {}  # plus task=… for a task project: the task a source's predictions are for
+TABLE_ROWS, TABLE_ROWS_DEFAULT = (20, 30, 40, 50, 100), 30  # Result / Hyperparameter tables: rows-a-page choices in Setting
 TASKS = []  # [Project] Task of a task project, in order (the first one's label is a row's "label")
 
 # ---------------------------------------------------------------- Setting

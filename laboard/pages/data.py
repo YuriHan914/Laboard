@@ -7,7 +7,7 @@ from PyQt6.QtCore import QRect, QRectF, QSize, Qt
 from PyQt6.QtGui import QImageReader, QPainter, QPainterPath, QPixmap
 from PyQt6.QtWidgets import QScrollArea, QSizePolicy, QWidget
 
-from .. import labels as label_values, project, store
+from .. import labels as label_values, project, remote, store
 from ..charts import Stage, StackedBar, ZoomView
 from ..theme import T, font, qc
 from ..widgets import (Box, Button, Combo, Dot, HLine, Label, Scroll, Segmented, badge, card, col, elided, empty_state, hbox,
@@ -63,7 +63,7 @@ def _thumb(path):
     if path.rsplit(".", 1)[-1].lower() not in project.IMAGE_EXT:
         return None
     if path not in _thumbs:
-        r = QImageReader(path)
+        r = QImageReader(remote.local(path))
         r.setScaledSize(QSize(76, 76))
         _thumbs[path] = QPixmap.fromImage(r.read())
     return _thumbs[path]
@@ -187,7 +187,7 @@ def _overlays(app, row):
 def _dims(path):
     if path.rsplit(".", 1)[-1].lower() not in project.IMAGE_EXT:
         return "—"
-    size = QImageReader(path).size()
+    size = QImageReader(remote.local(path)).size()
     return f"{size.width()}×{size.height()}" if size.isValid() else "—"
 
 
@@ -197,8 +197,13 @@ def _viewer(app, fd, files, di, sel):
     sp = store.split_of(s.folder, di)
     split_label, split_dot = store.SPLITS[sp]
     mode = s.view_mode
+    names = [n for n, _ in files]
+    pos = names.index(sel) if sel in names else 0
+    lo = max(0, pos - Thumb.WINDOW)
+    # remote files (host:path) of the file and its thumbnails: fetched in one call, then read from their local copies
+    remote.fetch([row["path"]] + [fd["rows"][i]["path"] for _, i in files[lo:pos + Thumb.WINDOW + 1]])
     ext = row["path"].rsplit(".", 1)[-1].upper() if "." in row["path"] else "FILE"
-    path = row["path"] if ext.lower() in project.IMAGE_EXT else None  # other formats show the placeholder
+    path = remote.local(row["path"]) if ext.lower() in project.IMAGE_EXT else None  # other formats show the placeholder
     label, chips = _label_and_prediction(app, row)
     meta, pred = f"{_dims(row['path'])} {ext}", dict(chips=chips, top=[])
     label_shapes, pred_shapes = _overlays(app, row) if path else (None, None)
@@ -233,8 +238,6 @@ def _viewer(app, fd, files, di, sel):
         modes = hbox(Label("Task", 13, 400, "body"), 8, pick, 12, modes, align=Qt.AlignmentFlag.AlignVCenter)
     head = hbox(elided(sel, 16, 600, lh=24), 10, split_pill, "stretch", 16, modes, margins=(20, 14, 20, 14), align=Qt.AlignmentFlag.AlignVCenter)
 
-    names = [n for n, _ in files]
-    pos = names.index(sel) if sel in names else 0
     step = lambda d: names and app.pick("data", names[(pos + d) % len(names)])
     hint = elided("Scroll to zoom · Shift+scroll or drag to pan · double-click to fit" if path else "", 12, 400, "mute")
     # Reset puts every pane (Raw and Predict) back to its first view: fitted and centred
@@ -244,7 +247,6 @@ def _viewer(app, fd, files, di, sel):
                margins=(20, 12, 20, 0), align=Qt.AlignmentFlag.AlignVCenter)
 
     thumbs = hbox(spacing=4, margins=(18, 12, 18, 12))
-    lo = max(0, pos - Thumb.WINDOW)
     for n, i in files[lo:pos + Thumb.WINDOW + 1]:
         thumbs.addWidget(Thumb(n.rsplit(".", 1)[0][-6:], store.SPLITS[store.split_of(s.folder, i)][1], n == sel,
                                lambda n=n: app.pick("data", n), path=fd["rows"][i]["path"]))

@@ -21,7 +21,7 @@ def _open_folder(app, path):
         app.status(f"Folder not found: {p}")
 
 
-TREE_TABS = ("model", "run", "result")
+TREE_TABS = ("model", "hyperparameter", "result")
 
 
 def _items(app):
@@ -48,7 +48,7 @@ def _items(app):
         title = "Model files" if tab == "model" else "Result files"
         return title, f"{len(files):,} file{'s' if len(files) != 1 else ''}", "Filter files", [
             dict(key=key, label=Path(key).name, ext=ext, meta=size, folder=folder) for key, ext, size, folder in files]
-    if tab == "run":
+    if tab == "hyperparameter":
         return "Hyperparameter", f"{len(store.RUNS)} set{'s' if len(store.RUNS) != 1 else ''}", "Filter sets", [
             dict(key=n, label=Path(n).name, meta=m, folder=str(Path(n).parent) if "/" in n else "") for n, m in store.RUNS]
     return "Recent projects", "", "Filter projects", [dict(label=n, meta=m, ext="TOML") for n, m in store.RECENT_PROJECTS]

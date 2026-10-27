@@ -1,6 +1,6 @@
 """Ground truth / prediction values as text and as shapes drawn over the image.
 
-A label is a plain value (a class name) or json in coco format, as made by Src/raw_to_csv:
+A label is a plain value (a class name) or json in coco format, as made by Data_prep/raw_to_csv:
 
 * ``["cat", "dog"]``: class names (classification);
 * ``[{"category", "bbox"}]``: boxes, coco [x, y, w, h] (object detection);

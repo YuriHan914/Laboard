@@ -45,7 +45,7 @@ def _missing(app, title, tab, text):
 
 def _data_card(app):
     if not store.DATA_FOLDERS:
-        return _missing(app, "Data", "data", "No data found in the [db] table or paths.data.")
+        return _missing(app, "Data", "data", "No data rows found. Check [Data] in the project file.")
     legend = _legend(*[hbox(Dot(dot, 8), 6, Label(name, 12, 400, "body"), 4, Label(n, 12, 600), align=Qt.AlignmentFlag.AlignVCenter)
                        for name, n, dot in D["splits"]])
     footer = vbox(HLine(), 12, legend)
@@ -61,7 +61,7 @@ def _data_card(app):
 
 def _model_card(app):
     if not store.MODEL_FILES:
-        return _missing(app, "Model", "model", "No model files found in paths.models.")
+        return _missing(app, "Model", "model", "No model files found in Path.Models.")
     total = sum(n for _, n, _, _ in D["formats"])
     legend = _legend(*[hbox(Dot(c, 8), 6, Label(name, 13, 400, "body"), 4, Label(str(n), 13, 600), 4,
                             Label(ext, 11, 400, "mute", mono=True), align=Qt.AlignmentFlag.AlignVCenter)
@@ -97,19 +97,19 @@ def _model_card(app):
 
 def _run_card(app):
     if not store.RUNS:
-        return _missing(app, "Latest hyperparameter", "run", "No hyperparameter sets found in Path.Hyperparameter.")
+        return _missing(app, "Latest hyperparameter", "hyperparameter", "No hyperparameter sets found in Path.Hyperparameter.")
     run_name, commit, rest = D["run_note"]
     note = Label(f"{run_name} · commit {mono_span(commit)} · {rest}", 13, 400, "body", rich=True, wrap=True)
     g = Flow(spacing=24, per_row=2, vspacing=0)  # one column when the card is narrow
     for k, v in D["hp"]:
         g.add(vbox(hbox(Label(k, 13, 400, "body"), 12, (Label(v, 13, 400, mono=True, align=Qt.AlignmentFlag.AlignRight, elide=True), 1),
                         margins=(0, 7, 0, 7)), HLine()), 220)
-    return _summary_card(vbox(_head("Latest hyperparameter", lambda: app.set(tab="run")), 8, note), g)
+    return _summary_card(vbox(_head("Latest hyperparameter", lambda: app.set(tab="hyperparameter")), 8, note), g)
 
 
 def _result_card(app):
     if not store.RESULT_FILES:
-        return _missing(app, "Result", "result", "No files found in paths.results.")
+        return _missing(app, "Result", "result", "No files found in Path.Results.")
     rows = D["accuracy_csv"]
     if not rows:  # no accuracy.csv among the results
         return _summary_card(

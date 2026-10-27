@@ -1,4 +1,6 @@
 """Result: charts from csv / jsonl / TensorBoard files, text and json, images."""
+import operator
+import re
 from pathlib import Path
 
 from PyQt6 import sip
@@ -9,8 +11,9 @@ from PyQt6.QtWidgets import QApplication, QGraphicsOpacityEffect, QSlider
 from .. import readers, store
 from ..charts import LineChart, Stage, Swatch, series_style
 from ..theme import NEGATIVE_DARKEST, POSITIVE, POSITIVE_DEEP, WARNING, WARNING_CONTENT, WARNING_DEEP, T, font
-from ..widgets import (Box, Button, Check, Chevron, Dot, EdgeResize, Flow, HLine, HScroll, Label, Pill, Scroll, card, clear_layout, elided,
-                       empty_state, grid, hbox, vbox, wrap)
+from ..widgets import (Box, Button, Check, Chevron, ClickTrap, Dot, EdgeResize, Flow, HLine, HScroll, Label, LineEdit,
+                       MenuButton, Pager, Pill, Popover, Scroll, card, clear_layout, elided, empty_state, grid, hbox,
+                       menu_item, vbox, wrap)
 
 COMPARE_SIZE = 10  # ticked charts per Compare plot (one colour slot each); more open the next plot
 # selection border (and Compare dot) per Compare plot: the first keeps positive-deep, later ones the semantic colours
@@ -59,55 +62,96 @@ def _kind(path):
     return ("JSON" if ext == "json" else "Text"), "text"
 
 
+_COMPARE = re.compile(r"^\s*(>=|<=|!=|==|=|>|<)\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)\s*$", re.I)
+_OPS = {">": operator.gt, ">=": operator.ge, "<": operator.lt, "<=": operator.le, "=": operator.eq, "==": operator.eq,
+        "!=": operator.ne}
+
+
+def _number(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _matcher(text):
+    """A column filter as a test of one value: ``> 0.5``, ``<= 10``, ``= 3``, ``!= 0`` compare numbers (a value that
+    isn't one fails); any other text must appear in the value, in any case."""
+    m = _COMPARE.match(text)
+    if m:
+        op, num = _OPS[m.group(1)], float(m.group(2))
+        return lambda v: (x := _number(v)) is not None and op(x, num)
+    t = text.strip().lower()
+    return lambda v: t in ("" if v is None else str(v)).lower()
+
+
+def _blank(v):
+    return v is None or str(v).strip() == ""
+
+
 class RecordTable(Box):
-    """Every column of a csv / tsv / jsonl file, PAGE rows at a time with Previous / Next. Columns are sized to
+    """Every column of a csv / tsv / jsonl file, ``app.s.table_rows`` rows a page under a ``Pager``. Columns are sized to
     their contents (within limits), and the table scrolls sideways when the centre is narrower than they are.
     A big table (FOLD_COLS+ columns and FOLD_ROWS+ rows) starts folded: a chart-sized card of its first PREVIEW
     rows and PREVIEW_COLS columns, squeezed to fit (one cell of ``flow``, the chart grid). A click on it unfolds it
     to the full width and back, and that stays while the page is shown. It has just those two sizes: folded, it
-    keeps a chart cell's size whatever the charts beside it do."""
+    keeps a chart cell's size whatever the charts beside it do.
 
-    PAGE = 50
+    Open, a column's header opens its menu: sort up / down (numbers as numbers, blanks last), a filter (text it holds,
+    or ``> 0.5`` style comparisons; every filter must pass) and hide. Columns brings hidden ones back, Reset clears
+    it all. That view is kept per file (``app.s.table_view``) while the page is shown."""
+
     FOLD_COLS, FOLD_ROWS, PREVIEW, PREVIEW_COLS = 5, 10, 6, 5
     FOLDED_COL_W = 60  # folded, columns share the card's width down to this, values shortened with "…"
 
     def __init__(self, app, key, cols, recs, more):
         super().__init__(bg="surf", radius=16, layout=vbox(margins=(0, 8, 0, 8)))
         self.app, self.key, self.cols, self.recs, self.more = app, key, cols, recs, more
+        self.view = app.s.table_view.setdefault(key, dict(sort=None, filters={}, hidden=set()))
+        self.per_page = app.s.table_rows  # rows a page, picked in Setting
         self.flow = None  # the grid it sits in when it folds (place())
         self.fold_h = 0  # folded, at least this tall: a chart card's height
         cell, head = QFontMetrics(font(13, mono=True)), QFontMetrics(font(12, 600, mono=True))
         sample = recs[:500]
-        self.widths = [min(280, max(72, head.horizontalAdvance(c), *(cell.horizontalAdvance(str(r.get(c, ""))) for r in sample))
-                           + 16) for c in cols]
+        self.widths = {c: min(280, max(72, head.horizontalAdvance(c) + 30, *(cell.horizontalAdvance(str(r.get(c, "")))
+                                                                            for r in sample)) + 16) for c in cols}
         self.head, self.rows = vbox(), vbox()
         self.table = wrap(vbox(self.head, self.rows))
         self.scroll = HScroll(self.table)
-        self.where = elided("", 12, 400, "mute")  # shortens before the buttons get pushed out
-        self.prev = Button("Previous", on_click=lambda: self.show_page(self.page - 1))
-        self.next = Button("Next", on_click=lambda: self.show_page(self.page + 1))
+        self.pager = Pager(self.per_page, len(recs), self.show_page)
         self.foldable = len(cols) >= self.FOLD_COLS and len(recs) >= self.FOLD_ROWS
+        self.size = elided("", 13, 600, select=False)  # the bar folds the table when clicked
+        self.columns = MenuButton("Columns", self._columns_menu, min_width=0, pad=(12, 4, 10, 4), gap=8)  # compact
+        self.reset = Button("Reset", "tertiary", compact=True, on_click=self._reset)
+        tools = ClickTrap()
+        tools.setLayout(hbox(self.reset, 8, self.columns, align=Qt.AlignmentFlag.AlignVCenter))
+        self.tools = tools
+        bar = hbox(margins=(24, 6, 24, 8), align=Qt.AlignmentFlag.AlignVCenter)
         if self.foldable:
             self.chev = Chevron("mute", 0)
-            self.fold_note = elided("", 12, 400, "mute")  # shortens first in a narrow card
-            total = f"{len(recs):,}{'+' if more else ''}"
-            size = elided(f"{len(cols)} columns · {total} rows", 13, 600)
-            size.setMinimumWidth(min(size.sizeHint().width(), 100))  # squeezed, the note gives way before it
-            self.layout().addLayout(hbox(self.chev, 10, size, "stretch",
-                                         self.fold_note, margins=(24, 6, 24, 8), align=Qt.AlignmentFlag.AlignVCenter))
+            self.fold_note = elided("", 12, 400, "mute", align=Qt.AlignmentFlag.AlignRight, select=False)  # shortens first
+            bar.addWidget(self.chev)
+            bar.addSpacing(10)
             self.setCursor(Qt.CursorShape.PointingHandCursor)
             self.clicked.connect(self.toggle)
+        bar.addWidget(self.size, 1)
+        if self.foldable:
+            bar.addWidget(self.fold_note, 1)
+            bar.addSpacing(12)
+        bar.addWidget(tools)
+        self.layout().addLayout(bar)
         self.layout().addWidget(self.scroll)
-        self.nav = wrap(hbox(self.where, "stretch", self.prev, 8, self.next, margins=(24, 10, 24, 4),
-                             align=Qt.AlignmentFlag.AlignVCenter))
-        self.layout().addWidget(self.nav)
+        self.layout().addWidget(self.pager)
         self.layout().addStretch(1)  # made taller than its rows (folded, to match the charts): the space goes below
-        self.pages = max(1, -(-len(recs) // self.PAGE))
-        self.show_page(app.s.table_page.get(key, 0))
+        self._apply(app.s.table_page.get(key, 0))
 
     @property
     def folded(self):
         return self.foldable and self.key not in self.app.s.table_open
+
+    def takes_clicks(self):
+        """Folded, a click unfolds it; open, its cells' text can be selected (a click on the bar folds it)."""
+        return self.folded
 
     def toggle(self):
         self.app.s.table_open ^= {self.key}
@@ -127,37 +171,159 @@ class RecordTable(Box):
             self.flow.set_width(self, None if self.folded else 10 ** 6)  # Flow caps it at the row's width
             self.setMinimumHeight(self.fold_h if self.folded else 0)
 
-    def _row(self, vals, header=False):
-        """One table row; ``vals`` may be cut short (a folded table), the columns still line up."""
-        g = grid(len(vals), spacing=0)
-        for i, (v, w) in enumerate(zip(vals, self.widths)):
-            g.setColumnMinimumWidth(i, self.FOLDED_COL_W if self.folded else w)  # the same in every row: columns line up
-            g.addWidget(Label(str(v), 12 if header else 13, 600 if header else 400, "body" if header else "ink", mono=True,
-                              elide=True), 0, i)
-        g.setContentsMargins(24, 10 if header else 8, 24, 10 if header else 8)
-        return vbox(g, HLine())
+    # ------------------------------------------------------------ the view: hidden columns, filters, sort
+    def _apply(self, page=0):
+        """Work out the columns and rows shown from ``view``, then show ``page`` of them."""
+        v = self.view
+        self.shown_cols = [c for c in self.cols if c not in v["hidden"]]
+        tests = [(c, _matcher(t)) for c, t in v["filters"].items() if t.strip()]
+        recs = [r for r in self.recs if all(test(r.get(c)) for c, test in tests)] if tests else list(self.recs)
+        if v["sort"]:
+            c, up = v["sort"]
+            blank = [r for r in recs if _blank(r.get(c))]
+            full = [r for r in recs if not _blank(r.get(c))]
+            nums = [_number(r.get(c)) for r in full]
+            if all(n is not None for n in nums):  # a number column sorts by value, else as text
+                order = sorted(range(len(full)), key=nums.__getitem__, reverse=not up)
+            else:
+                order = sorted(range(len(full)), key=lambda i: str(full[i].get(c)).lower(), reverse=not up)
+            recs = [full[i] for i in order] + blank  # blanks last either way
+        self.view_recs = recs
+        self.pager.set_total(len(recs))
+        self.pages = self.pager.pages
+        total = f"{len(self.recs):,}{'+' if self.more else ''}"
+        ncols = f"{len(self.shown_cols)} of {len(self.cols)}" if v["hidden"] else f"{len(self.cols)}"
+        nrows = f"{len(recs):,} of {total}" if tests else total
+        self.size.setText(f"{ncols} columns · {nrows} rows")
+        self.size.setToolTip(self.size.text())
+        self.reset.setVisible(bool(v["hidden"] or tests or v["sort"]))
+        self.show_page(page)
+
+    def _set(self, **kw):
+        """Change the view (and go back to its first page)."""
+        self.view.update(kw)
+        self._apply(0)
+
+    def _sort(self, col, up):
+        self._set(sort=None if up is None else (col, up))
+
+    def _filter(self, col, text):
+        self._set(filters={**self.view["filters"], col: text} if text.strip() else
+                  {c: t for c, t in self.view["filters"].items() if c != col})
+
+    def _hide(self, col, hidden):
+        self._set(hidden=self.view["hidden"] | {col} if hidden else self.view["hidden"] - {col})
+
+    def _reset(self):
+        self._set(sort=None, filters={}, hidden=set())
+
+    def _column_menu(self, col, anchor):
+        """A column's menu under its header: sort, filter (applied as you type) and hide."""
+        sort = self.view["sort"]
+        up, down = sort == (col, True), sort == (col, False)
+        pop = None
+
+        def then_close(f):
+            return lambda: pop.done(f)
+
+        box = LineEdit("Text, or > 0.5", size=13, pad=(6, 10))
+        box.setText(self.view["filters"].get(col, ""))
+        box.textChanged.connect(lambda t: self._filter(col, t))
+        box.returnPressed.connect(lambda: pop.done())
+        last = len(self.shown_cols) == 1
+        title = Label(col, 12, 600, "mute", mono=True, lh=28, elide=True)
+        title.setContentsMargins(4, 0, 4, 0)
+        items = vbox(title, 2,
+                     menu_item("Sort ascending", then_close(lambda: self._sort(col, None if up else True)), on=up),
+                     menu_item("Sort descending", then_close(lambda: self._sort(col, None if down else False)), on=down),
+                     8, HLine(), 8, Label("Filter", 12, 600, "body", lh=20), 4, box, 4,
+                     Label("Text it holds, or > >= < <= = != with a number", 11, 400, "mute", wrap=True), 8, HLine(), 4,
+                     menu_item("Hide column", then_close(lambda: self._hide(col, True)), enabled=not last),
+                     margins=(8, 8, 8, 4))
+        pop = Popover(anchor, items, min_width=260)
+        pop.show()
+        box.setFocus()
+
+    def _columns_menu(self):
+        """Every column with a tick for those shown; a click shows or hides one (the last one shown stays)."""
+        def flip(col, check):
+            hidden = col not in self.view["hidden"]
+            if hidden and len(self.shown_cols) == 1:
+                return
+            self._hide(col, hidden)
+            check.set_checked(not hidden)
+
+        rows = vbox(margins=(4, 4, 4, 4))
+        for c in self.cols:
+            check = Check(c not in self.view["hidden"], 16)
+            rows.addWidget(Box(bg=None, radius=8, hover="surf2", on_click=lambda c=c, k=check: flip(c, k),
+                               layout=hbox(check, 10, (Label(c, 13, 400, mono=True, lh=20, elide=True), 1),
+                                           margins=(10, 7, 12, 7), align=Qt.AlignmentFlag.AlignVCenter)))
+        rows.addWidget(HLine())
+        rows.addWidget(menu_item("Show all", lambda: pop.done(lambda: self._set(hidden=set()))))
+        fm = QFontMetrics(font(13, mono=True))
+        pop = self.columns.pop(rows, min_width=min(360, max(220, self.columns.width(),
+                                                             60 + max(map(fm.horizontalAdvance, self.cols)))))
+
+    # ------------------------------------------------------------ rows
+    def _row(self, cols, vals=None):
+        """One table row of ``cols``; the header (no ``vals``) of an open table is a menu button per column."""
+        header = vals is None
+        g = grid(len(cols), spacing=0)
+        for i, c in enumerate(cols):
+            g.setColumnMinimumWidth(i, self.FOLDED_COL_W if self.folded else self.widths[c])  # the same in every row: columns line up
+            if header and not self.folded:
+                g.addWidget(self._head_cell(c), 0, i)
+            else:
+                g.addWidget(Label(str(c if header else vals[i]), 12 if header else 13, 600 if header else 400,
+                                  "body" if header else "ink", mono=True, elide=True), 0, i)
+        live = header and not self.folded
+        # an open header's buttons have 6px of padding: start the row 6px further left so their text lines up
+        g.setContentsMargins(18 if live else 24, 6 if live else 10 if header else 8, 30 if live else 24,
+                             6 if live else 10 if header else 8)
+        if not live:
+            return vbox(g, HLine())
+        trap = ClickTrap()  # the header's clicks don't fold the table
+        trap.setLayout(g)
+        return vbox(trap, HLine())
+
+    def _head_cell(self, col):
+        """A column's header: its name, an arrow when sorted by it, a dot when filtered; a click opens its menu."""
+        sort, filtered = self.view["sort"], bool(self.view["filters"].get(col, "").strip())
+        on = filtered or (sort and sort[0] == col)
+        cell = Box(bg=None, radius=8, hover="surf2")
+        cell.setLayout(hbox((Label(col, 12, 600, "ink" if on else "body", mono=True, elide=True), 1),
+                            *((4, Label("↑" if sort[1] else "↓", 12, 600, "ink")) if sort and sort[0] == col else ()),
+                            *((4, Dot("ink", 6)) if filtered else ()), 6, Chevron("mute", 90),
+                            margins=(6, 4, 6, 4), align=Qt.AlignmentFlag.AlignVCenter))
+        cell.setCursor(Qt.CursorShape.PointingHandCursor)
+        cell.setToolTip(col)
+        cell.clicked.connect(lambda: self._column_menu(col, cell))
+        return cell
 
     def show_page(self, n):
         self.page = n = max(0, min(n, self.pages - 1))
         self.app.s.table_page[self.key] = n  # kept across re-renders
         clear_layout(self.head)
         clear_layout(self.rows)
-        cols = self.cols[:self.PREVIEW_COLS] if self.folded else self.cols
-        shown = self.recs[:self.PREVIEW] if self.folded else self.recs[n * self.PAGE:(n + 1) * self.PAGE]
-        self.head.addLayout(self._row(cols, True))
+        cols = self.shown_cols[:self.PREVIEW_COLS] if self.folded else self.shown_cols
+        recs = self.view_recs
+        shown = recs[:self.PREVIEW] if self.folded else recs[n * self.per_page:(n + 1) * self.per_page]
+        self.head.addLayout(self._row(cols))
         for r in shown:
-            self.rows.addLayout(self._row([r.get(c, "") for c in cols]))
+            self.rows.addLayout(self._row(cols, [r.get(c, "") for c in cols]))
+        if not shown:
+            none = Label("No rows match the filters" if self.recs else "No rows", 13, 400, "mute", lh=40)
+            none.setContentsMargins(24, 0, 24, 0)
+            self.rows.addWidget(none)
         if self.foldable:
             self.chev.rotation = 0 if self.folded else 90
             self.chev.update()
-            hidden = f" · first {len(cols)} of {len(self.cols)} columns" if len(cols) < len(self.cols) else ""
+            hidden = f" · first {len(cols)} of {len(self.shown_cols)} columns" if len(cols) < len(self.shown_cols) else ""
             self.fold_note.setText(f"first {self.PREVIEW} rows{hidden} · click to expand" if self.folded else "click to fold")
-        self.nav.setVisible(not self.folded)
-        lo, hi = n * self.PAGE + 1, min((n + 1) * self.PAGE, len(self.recs))
-        total = f"{len(self.recs):,}{'+' if self.more else ''}"
-        self.where.setText(f"Rows {lo:,}–{hi:,} of {total} · page {n + 1} of {self.pages}" if self.recs else "No rows")
-        self.prev.setEnabled(n > 0)
-        self.next.setEnabled(n < self.pages - 1)
+        self.tools.setVisible(not self.folded)
+        self.pager.setVisible(not self.folded)
+        self.pager.set_page(n)
         self.table.updateGeometry()
         self.scroll.updateGeometry()
 
@@ -511,16 +677,21 @@ class ResultPage(Scroll):
         return side
 
     def unshare(self, by):
-        """The Compare panel narrowed ``by`` px: cards the user narrowed to sit side by side that now each get a row of
-        their own go back to the panel's width, as they started (their heights stay)."""
+        """The Compare panel narrowed ``by`` px: cards the user narrowed go back to the panel's width, as they started
+        (their heights stay), once they get a row of their own: no longer fitting beside another, or alone already and
+        the panel down to their width. Cards still side by side, or alone and still narrower, keep their widths."""
         flow, sizes = self.cmp_flow, self.app.s.chart_size
-        width = flow.geometry().width()  # still the old width: the panel's layout hasn't run yet
-        if not flow.own or not flow.shared(width) or flow.shared(width - by):
+        if not flow.own:
             return
+        width = flow.geometry().width()  # still the old width: the panel's layout hasn't run yet
+        alone = lambda w: {row[0][0].widget() for row in flow._rows(w) if len(row) == 1}
+        was, now = alone(width), alone(width - by)
         for g, c in self.cmp.items():
-            flow.set_width(c["card"], None)
-            if ("compare", g) in sizes:
-                sizes[("compare", g)] = (None, sizes[("compare", g)][1])
+            card = c["card"]
+            if card in now and card in flow.own and (card not in was or flow.own[card] >= width - by):
+                flow.set_width(c["card"], None)
+                if ("compare", g) in sizes:
+                    sizes[("compare", g)] = (None, sizes[("compare", g)][1])
 
     def _compare_card(self, group):
         chart, count, legend = LineChart((), (), plot_h=260), Label("", 12, 400, "mute"), vbox(spacing=8)

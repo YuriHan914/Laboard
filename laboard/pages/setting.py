@@ -6,10 +6,11 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import QFileDialog, QLineEdit, QStyle
 
 from .. import store, theme, tomledit
-from ..widgets import (Box, Button, Combo, Flow, HLine, Label, LineEdit, Scroll, Segmented, badge, breakable, card, hbox,
-                       set_tip, vbox, wrap)
+from ..widgets import (Box, Button, Combo, Flow, HLine, Label, LineEdit, Scroll, Segmented, Select, badge, breakable, card,
+                       hbox, set_tip, vbox, wrap)
 
 ROW_H = Button.height_for("sm")  # inputs, value text and buttons of a field row share one height
+LOAD_PAD = (8, 16)  # Browse / Load: the md text in tighter padding than md's (12, 24): 40px high, narrower
 
 
 def _toml_lines(lines):
@@ -47,8 +48,8 @@ def _wants_file(sec, key, v, cfg):
         return False
     if k in ("file_path", "path") and s in ("data", "prediction"):
         kind = str(cfg.get(s, {}).get("type") or "").lower()
-        if kind in ("csv", "folder"):
-            return kind == "csv"
+        if kind == "csv":
+            return True
     p = Path(str(v or "")).expanduser()
     return p.is_file() or bool(p.suffix)
 
@@ -140,14 +141,12 @@ def _save_as(app, toml):
 
 
 def _hidden(sec, key, cfg):
-    """Rows that don't apply to what the file chose: Table only for Type = DB, File_path not for DB, [Data] Raw not
-    for Folder, [Prediction] Format only for Folder."""
+    """Rows that don't apply to what the file chose: Table only for Type = DB, File_path not for DB."""
     s, k = tomledit.canon(sec), key.lower()
     if s not in ("data", "label", "prediction"):
         return False
     kind = str(cfg.get(s, {}).get("type") or "").lower()
-    return (k == "table" and kind != "db") or (k == "file_path" and kind == "db") or \
-        (s == "data" and k == "raw" and kind == "folder") or (s == "prediction" and k == "format" and kind != "folder")
+    return (k == "table" and kind != "db") or (k == "file_path" and kind == "db")
 
 
 def _fields(app, toml):
@@ -204,8 +203,8 @@ def _keep_scroll(app, scroll):
 
 def build(app):
     path = store.PROJECT.get("toml", "")
-    path_edit = LineEdit("Choose a laboard .toml project file", size=15, pad=(11, 16), mono=True)
-    path_edit.setFixedHeight(Button.height_for("md"))  # same height as Browse / Load so the row lines up
+    path_edit = LineEdit("Choose a laboard .toml project file", size=15, pad=(7, 16), mono=True)
+    path_edit.setFixedHeight(Button.height_for("md", pad=LOAD_PAD))  # same height as Browse / Load so the row lines up
     path_edit.setText(app.s.pending_toml if app.s.pending_toml is not None else path)
     path_edit.textChanged.connect(lambda t: setattr(app.s, "pending_toml", t))  # survives re-renders until loaded
 
@@ -232,8 +231,9 @@ def build(app):
               14, 400, "body", wrap=True), 18,
         Label("Project file", 14, 600, lh=20), 8,
         # field and buttons share one row of equal height, so their tops and bottoms line up
-        hbox((path_edit, 1), 12, Button("Browse", size="md", on_click=browse), 12,
-             Button("Load", "primary", "md", on_click=load_typed), align=Qt.AlignmentFlag.AlignVCenter),
+        hbox((path_edit, 1), 12, Button("Browse", size="md", on_click=browse, pad=LOAD_PAD), 5,
+             Button("Load", "primary", "md", on_click=load_typed, pad=LOAD_PAD), 1,  # Load sits 1px in from the edge
+             align=Qt.AlignmentFlag.AlignVCenter),
         pad=(32, 28, 32, 28))
 
     name = os.path.basename(path) or "Project file"
@@ -269,7 +269,12 @@ def build(app):
     look = card(Label("Appearance", 16, 600, lh=24), 12,
                 hbox(Segmented([("light", "Light"), ("dark", "Dark")], theme.current, lambda k: app.set(theme=k),
                                size=14, pad=(7, 20), outer=4, gap=4), "stretch"), pad=(24, 20, 24, 20))
+    rows = Select([(n, str(n)) for n in store.TABLE_ROWS], app.s.table_rows, lambda n: app.set(table_rows=n))
+    tables = Box(bg="surf", radius=16, layout=hbox(
+        (vbox(Label("Items per page", 16, 600, lh=24), Label("How many rows Result and Hyperparameter tables show at once",
+                                                             13, 400, "body", lh=20, wrap=True)), 1), 16, rows,
+        margins=(24, 20, 24, 20), align=Qt.AlignmentFlag.AlignVCenter))
     lower = Flow()  # the Detected / Appearance column moves under the preview when the centre is narrow
     lower.add(Box(bg="surf", radius=16, layout=preview), 420, 6)
-    lower.add(vbox(card(det, pad=(24, 20, 24, 20)), 12, look, "stretch"), 340, 5)
+    lower.add(vbox(card(det, pad=(24, 20, 24, 20)), 12, look, 12, tables, "stretch"), 340, 5)
     return _keep_scroll(app, Scroll(wrap(vbox(load, 12, lower, "stretch"))))

@@ -5,18 +5,18 @@ import sys
 from types import SimpleNamespace
 
 from PyQt6 import sip
-from PyQt6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt, QTimer
+from PyQt6.QtCore import QEvent, QPoint, QPointF, QRectF, QSettings, Qt, QTimer
 from PyQt6.QtGui import QColor, QPainter, QPen
 from PyQt6.QtWidgets import QApplication, QFrame, QGraphicsDropShadowEffect, QMainWindow, QSizePolicy, QWidget
 
 from . import netronview, project, sidebar, store, theme
-from .pages import data, home, model, result, run, setting
+from .pages import data, home, hyperparameter, model, result, setting
 from .theme import T
 from .widgets import (Box, Button, Chevron, Collapsing, Dot, HLine, InfoIcon, Label, Logo, Pill, Scroll, Segmented, SideHandle,
                       SplashLogo, clear_layout, hbox, mono_span, vbox, wrap)
 
-TABS = [("home", "Home"), ("data", "Data"), ("model", "Model"), ("run", "Hyperparameter"), ("result", "Result"), ("setting", "Setting")]
-PAGES = dict(home=home, data=data, model=model, run=run, result=result, setting=setting)
+TABS = [("home", "Home"), ("data", "Data"), ("model", "Model"), ("hyperparameter", "Hyperparameter"), ("result", "Result"), ("setting", "Setting")]
+PAGES = dict(home=home, data=data, model=model, hyperparameter=hyperparameter, result=result, setting=setting)
 
 
 class WindowButton(QWidget):
@@ -57,7 +57,7 @@ class TitleBar(QFrame):
         self.setStyleSheet("TitleBar{background:#0e0f0c;border-bottom:1px solid #2a2b28;}")
         left = hbox(Logo(22), 8, Label("Laboard", 13, 600, "#e8ebe6"), "stretch", align=Qt.AlignmentFlag.AlignVCenter)
         title = f"{store.PROJECT['name']} — {store.PROJECT['toml']}" if store.PROJECT else "No project loaded"
-        mid = Label(title, 13, 400, "#868685", align=Qt.AlignmentFlag.AlignCenter)
+        mid = Label(title, 13, 400, "#868685", align=Qt.AlignmentFlag.AlignCenter, select=False)  # dragging it moves the window
         btns = hbox("stretch", WindowButton("min", win.showMinimized), WindowButton("max", self.toggle_max),
                     WindowButton("close", win.close), spacing=8)
         self.setLayout(hbox((left, 1), (mid, 2), (btns, 1), margins=(16, 0, 10, 0), spacing=12))
@@ -71,6 +71,15 @@ class TitleBar(QFrame):
 
     def mouseDoubleClickEvent(self, e):
         self.toggle_max()
+
+
+def _saved_rows():
+    """Rows a page of Result / Hyperparameter tables as last picked in Setting (QSettings), else the default."""
+    try:
+        n = int(QSettings("Laboard", "Laboard").value("table_rows", store.TABLE_ROWS_DEFAULT))
+    except (TypeError, ValueError):
+        n = store.TABLE_ROWS_DEFAULT
+    return n if n in store.TABLE_ROWS else store.TABLE_ROWS_DEFAULT
 
 
 CENTER_MIN = 620  # every page's centre shrinks with the window down to this (about the Data viewer's own minimum)
@@ -166,7 +175,7 @@ class CommitPicker(QFrame):
         self.rows = vbox()
         self.sc = Scroll(wrap(vbox(self.rows, "stretch")))
         lay.addWidget(self.sc)
-        back = Label("<u>Back to latest</u>", 13, 600, rich=True)
+        back = Label("<u>Back to latest</u>", 13, 600, rich=True, select=False)
         back.setCursor(Qt.CursorShape.PointingHandCursor)
         back.mousePressEvent = lambda e: self.choose(None)
         lay.addWidget(HLine())
@@ -261,20 +270,24 @@ class MainWindow(QMainWindow):
             setting_scroll=0,  # Setting: how far the page is scrolled, kept when Edit → Save reloads it
             table_page={},  # Result csv table: page shown, by file
             table_open=set(),  # big Result csv tables the user unfolded, by file
+            table_view={},  # Result csv tables: dict(sort=(column, ascending) | None, filters={column: text}, hidden=set()), by file
             run_page={},  # Hyperparameter tables: page shown, by (run, file)
             run_open=set(),  # Hyperparameter tables the user opened (all start closed), by (run, file)
+            hp_query="",  # Hyperparameter: the search typed above the config tables
             chart_sel={},  # Result charts the user ticked: (file, tag) -> colour slot in the comparison
             chart_size={},  # Result charts the user resized: (file, tag) or "compare" -> (width or None, plot height)
-            open_dirs=dict(model=set(), run=set(), result=set()))  # sidebar tree folders the user expanded
+            open_dirs=dict(model=set(), hyperparameter=set(), result=set()))  # sidebar tree folders the user expanded
 
     def reset_state(self, tab="home"):
         """Selections pointing at the first item of what ``store`` holds; empty strings when it holds nothing."""
         folder = next(iter(store.DATA_FOLDERS), "")
+        prefs = getattr(self, "s", None)  # what's picked in Setting lasts across tabs and projects
         self.s = SimpleNamespace(
+            table_rows=prefs.table_rows if prefs else _saved_rows(),  # Result / Hyperparameter tables: rows a page
             tab=tab, folder=folder, view_commit=None, infer_source=next(iter(store.INFERENCE), None),
             task=store.TASKS[0] if store.TASKS else None,  # Data: the task whose labels and predictions are shown
             sel=dict(home=store.PROJECT.get("hot_file", ""), data=store.DATA_FOLDERS[folder]["files"][0] if folder else "",
-                     model=_first(store.MODEL_FILES), run=_first(store.RUNS), result=_first(store.RESULT_FILES),
+                     model=_first(store.MODEL_FILES), hyperparameter=_first(store.RUNS), result=_first(store.RESULT_FILES),
                      setting=_first(store.RECENT_PROJECTS)),
             **self.view_state())
         self.task = store.DASH.get("task", "")
@@ -302,7 +315,7 @@ class MainWindow(QMainWindow):
                 self.s.infer_source = old.infer_source
             if old.task in store.TASKS:
                 self.s.task = old.task
-            valid = dict(model=store.MODEL_INFO, run=store.RUN_DETAILS, result=store.RESULT_PATHS)
+            valid = dict(model=store.MODEL_INFO, hyperparameter=store.RUN_DETAILS, result=store.RESULT_PATHS)
             for tab, keys in valid.items():
                 if old.sel[tab] in keys:
                     self.s.sel[tab] = old.sel[tab]
@@ -408,6 +421,8 @@ class MainWindow(QMainWindow):
     def set(self, **kw):
         if "theme" in kw:
             theme.set_theme(kw.pop("theme"))
+        if "table_rows" in kw:  # picked in Setting: also kept for the next start
+            QSettings("Laboard", "Laboard").setValue("table_rows", kw["table_rows"])
         if kw.get("tab", self.s.tab) != self.s.tab:  # leaving a page drops everything adjusted on it
             vars(self.s).update(self.view_state())
             self.side_widths.clear()
