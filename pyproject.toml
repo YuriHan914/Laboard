@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "laboard"
+dynamic = ["version"]
+description = "Laboard — PyQt6 desktop tracker for ML experiments and their git history"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "PyQt6>=6.7",
+    "PyQt6-WebEngine>=6.7",
+    "netron>=8.0",
+    "onnx>=1.15",
+    "msgpack>=1.0",
+    "PyYAML>=6.0",
+    "SQLAlchemy>=2.0",                  # [Data] / [Label] / [Prediction] Type = "DB"; SQLite needs nothing more
+]
+
+# a database's driver: pip install "laboard[postgres]", "laboard[mysql,oracle]", "laboard[all]"
+[project.optional-dependencies]
+postgres = ["psycopg2-binary>=2.9"]     # PostgreSQL, Supabase
+mysql = ["PyMySQL>=1.1"]                # MySQL, MariaDB
+mssql = ["pymssql>=2.3"]                # Microsoft SQL Server (no ODBC driver needed)
+oracle = ["oracledb>=2.0"]              # Oracle (thin mode: no Instant Client needed)
+sqlite = []                             # sqlite3 comes with Python
+parquet = ["pandas>=2.0"]               # [Data] File_path = "….parquet"
+all = ["laboard[postgres,mysql,mssql,oracle,parquet]"]
+
+[project.urls]
+Homepage = "https://github.com/YuriHan914/Laboard"
+Repository = "https://github.com/YuriHan914/Laboard"
+Documentation = "https://github.com/YuriHan914/Laboard/tree/master/Docs"
+
+[project.scripts]
+laboard = "laboard.app:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "laboard.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["laboard*"]
+
+[tool.setuptools.package-data]
+laboard = ["assets/fonts/*", "assets/logo/*"]
