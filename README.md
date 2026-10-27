@@ -13,6 +13,16 @@
   <a href="README.md"><img src="https://img.shields.io/badge/%F0%9F%87%BA%F0%9F%87%B8_English-e8ebe6?style=for-the-badge" alt="English"/></a>
 </p>
 
+<p align="center">
+  <img src="https://img.shields.io/badge/Version-1.0.0-blue?style=for-the-badge" alt="Version 1.0.0"/>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.11+"/></a>
+  <a href="https://pypi.org/project/PyQt6/"><img src="https://img.shields.io/badge/PyQt6-6.7%2B-41CD52?style=for-the-badge&logo=qt&logoColor=white" alt="PyQt6 6.7+"/></a>
+  <a href="https://www.sqlalchemy.org/"><img src="https://img.shields.io/badge/SQLAlchemy-2.0%2B-D71F00?style=for-the-badge&logo=sqlalchemy&logoColor=white" alt="SQLAlchemy 2.0+"/></a>
+  <a href="https://github.com/lutzroeder/netron"><img src="https://img.shields.io/badge/Netron-8.0%2B-555555?style=for-the-badge" alt="Netron 8.0+"/></a>
+  <a href="https://onnx.ai/"><img src="https://img.shields.io/badge/ONNX-1.15%2B-005CED?style=for-the-badge&logo=onnx&logoColor=white" alt="ONNX 1.15+"/></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge" alt="License: MIT"/></a>
+</p>
+
 
 <br></br>
 
