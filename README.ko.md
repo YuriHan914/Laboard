@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-1.0.0-blue?style=for-the-badge" alt="Version 1.0.0"/>
+  <img src="https://img.shields.io/github/v/release/YuriHan914/EX_Tool?style=for-the-badge&label=Version" alt="Version 1.0.0"/>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.11+"/></a>
   <a href="https://pypi.org/project/PyQt6/"><img src="https://img.shields.io/badge/PyQt6-6.7%2B-41CD52?style=for-the-badge&logo=qt&logoColor=white" alt="PyQt6 6.7+"/></a>
   <a href="https://www.sqlalchemy.org/"><img src="https://img.shields.io/badge/SQLAlchemy-2.0%2B-D71F00?style=for-the-badge&logo=sqlalchemy&logoColor=white" alt="SQLAlchemy 2.0+"/></a>
@@ -30,11 +30,10 @@
 
 <table>
   <tr>
-    <td align="center" width="50%"><img src="Docs/assets/LABOARD_HOME.png" alt="Home (light)"/><br/><sub>Light</sub></td>
-    <td align="center" width="50%"><img src="Docs/assets/LABOARD_HOME_DARK.png" alt="Home (dark)"/><br/><sub>Dark</sub></td>
+    <td align="center" width="50%"><img src="Docs/assets/LABOARD_HOME.png" alt="Home (light)"/><br/><sub>[Light]</sub></td>
+    <td align="center" width="50%"><img src="Docs/assets/LABOARD_HOME_DARK.png" alt="Home (dark)"/><br/><sub>[Dark]</sub></td>
   </tr>
 </table>
-
 
 <br></br>
 
