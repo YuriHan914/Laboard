@@ -1,9 +1,11 @@
 # Home
 
-<p align="center">
-  <img src="../assets/LABOARD_HOME.png" alt="Home (light)" width="900"/>
-  <img src="../assets/LABOARD_HOME_DARK.png" alt="Home (dark)" width="900"/>
-</p>
+<table>
+  <tr>
+    <td align="center" width="50%"><img src="../assets/LABOARD_HOME.png" alt="Home (light)"/><br/><sub>Light</sub></td>
+    <td align="center" width="50%"><img src="../assets/LABOARD_HOME_DARK.png" alt="Home (dark)"/><br/><sub>Dark</sub></td>
+  </tr>
+</table>
 
 
 **English** | [한국어](../ko/home.md)
