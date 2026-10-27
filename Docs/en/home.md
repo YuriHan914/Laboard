@@ -1,12 +1,10 @@
 # Home
 
-<table>
-  <tr>
-    <td align="center" width="50%"><img src="../assets/LABOARD_HOME.png" alt="Home (light)"/><br/><sub>Light</sub></td>
-    <td align="center" width="50%"><img src="../assets/LABOARD_HOME_DARK.png" alt="Home (dark)"/><br/><sub>Dark</sub></td>
-  </tr>
-</table>
+## 📽 Demo Video
 
+<p align="center">
+  <a href="https://youtu.be/_dGEJo_bTo4"><img src="https://raw.githubusercontent.com/YuriHan914/Laboard/f8e7266ac86c7b964c78548f822705ff3c4854d6/Docs/assets/LABOARD_HOME.png" alt="Home (light)" width="48%" hspace="3.5"/><img src="https://raw.githubusercontent.com/YuriHan914/Laboard/f8e7266ac86c7b964c78548f822705ff3c4854d6/Docs/assets/LABOARD_HOME_DARK.png" alt="Home (dark)" width="48%" hspace="3.5"/></a>
+</p>
 
 
 Home is the project at a glance. The centre has four summary cards: Data, Model, Latest hyperparameter and Result.
