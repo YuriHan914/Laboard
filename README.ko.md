@@ -54,11 +54,20 @@ Laboard는 읽기만 합니다. 파일, 데이터베이스, 저장소를 수정�
 
 ## 🛠️ Installation
 
-```bash
-git clone https://github.com/YuriHan914/EX_Tool.git
-cd EX_Tool
+- Recommend Python 3.11+
 
-# Python 3.11+
+1. Git repository에서 직접 다운로드 받기
+```bash
+git clone https://github.com/YuriHan914/Laboard.git
+cd Laboard
+pip install -e .                        # DB 없이 (csv / tsv / jsonl 파일, SQLite)
+pip install -e ".[postgres]"            # PostgreSQL, Supabase
+pip install -e ".[mysql,oracle]"        # 여러 개
+pip install -r requirements.txt         # 모든 DB 드라이버 (= pip install -e ".[all]")
+```
+
+2. pip install
+```bash
 pip install .                    # DB 없이 (csv / tsv / jsonl 파일, SQLite)
 pip install ".[postgres]"        # 쓰는 DB의 드라이버를 같이 설치
 pip install ".[mysql,oracle]"    # 여러 개

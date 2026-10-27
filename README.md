@@ -54,15 +54,25 @@ remote-tracking branches.
 
 ## 🛠️ Installation
 
-```bash
-git clone https://github.com/YuriHan914/EX_Tool.git
-cd EX_Tool
+- Recommend Python 3.11+
 
-# Python 3.11+
-pip install .                    # no database (csv / tsv / jsonl files, SQLite)
-pip install ".[postgres]"        # with the driver of the database you use
-pip install ".[mysql,oracle]"    # several
-pip install ".[all]"             # every database driver + parquet
+1. Download from git repository
+```bash
+git clone https://github.com/YuriHan914/Laboard.git
+cd Laboard
+pip install -e .                        # no database (csv / tsv / jsonl files, SQLite)
+pip install -e ".[postgres]"            # PostgreSQL, Supabase
+pip install -e ".[mysql,oracle]"        # several
+pip install -r requirements.txt         # all (= pip install -e ".[all]")
+
+```
+
+2. pip install 
+```bash
+pip install laboard                    # no database (csv / tsv / jsonl files, SQLite)
+pip install "laboard[postgres]"        # with the driver of the database you use
+pip install "laboard[mysql,oracle]"    # several
+pip install "laboard[all]"             # every database driver + parquet
 ```
 
 | extra | Database | Driver installed |
