@@ -1,9 +1,3 @@
-"""Netron inside the Model page: a local netron server for the selected file, shown in a web view.
-
-Netron parses models in JavaScript (ONNX, PyTorch, safetensors, Flax, TensorRT, Keras, TFLite, ...),
-so nothing here needs a GPU, CUDA or a matching TensorRT. ``netron`` and ``PyQt6-WebEngine`` are
-optional: without them ``AVAILABLE`` is False and the Model page says what to install.
-"""
 import logging
 import os
 
@@ -16,20 +10,19 @@ try:
     import netron
     from PyQt6 import sip
     from PyQt6.QtWebEngineCore import QWebEngineScript
-    from PyQt6.QtWebEngineWidgets import QWebEngineView  # must be imported before QApplication exists
+    from PyQt6.QtWebEngineWidgets import QWebEngineView
     AVAILABLE = True
 except ImportError:
     AVAILABLE = False
 
-logging.getLogger("netron").setLevel(logging.WARNING)  # netron logs every request at INFO
+logging.getLogger("netron").setLevel(logging.WARNING)
 _view, _path, _address = None, None, None
-_win = None  # the main window: the view's home between pages (attach / park)
-SIDEBAR_FONT_PX = 14  # netron's detail panel uses 11px item text; scale the whole panel so 11px becomes this
-SIDEBAR_WIDTH = 0.7  # of netron's own panel width (min(60%, 42em), set inline when the panel opens)
+_win = None
+SIDEBAR_FONT_PX = 14
+SIDEBAR_WIDTH = 0.7
 
 
 def prepare():
-    """Call before creating QApplication: WebEngine needs shared GL contexts; software rendering keeps it GPU-free."""
     if AVAILABLE:
         os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu")
         QCoreApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
@@ -40,14 +33,11 @@ def url():
 
 
 def _new_view(parent=None):
-    """A web view that styles every netron page it loads (the installed netron files stay untouched)."""
     v = QWebEngineView(parent)
     script = QWebEngineScript()
     script.setName("laboard-sidebar-size")
     script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentReady)
     script.setWorldId(QWebEngineScript.ScriptWorldId.ApplicationWorld)
-    # zoom, not font-size: names, widths and padding grow together so the panel layout holds.
-    # The width rule needs !important to beat the inline width netron sets each time the panel opens.
     script.setSourceCode(f"""(() => {{ const s = document.createElement('style');
         s.textContent = '.sidebar {{ zoom: {SIDEBAR_FONT_PX / 11:.4f}; '
             + 'width: calc(min(calc(100% * 0.6), 42em) * {SIDEBAR_WIDTH}) !important; }}';
@@ -58,11 +48,8 @@ def _new_view(parent=None):
 
 
 def _apply_theme(v):
-    """Follow the app's theme: netron's own dark styles (its prefers-color-scheme: dark rules, switched on or off
-    whatever the system prefers) with the graph on the app's stage colour. Runs after every load and render, so a
-    theme picked in Setting shows the next time the Model tab is open."""
     dark = theme.current == "dark"
-    v.page().setBackgroundColor(QColor(theme.T.stage))  # before the page paints: no white flash
+    v.page().setBackgroundColor(QColor(theme.T.stage))
     v.page().runJavaScript(f"""(dark => {{
         const seen = window.laboardDark = window.laboardDark || new Set();
         for (const sheet of document.styleSheets) {{
@@ -85,38 +72,30 @@ def _apply_theme(v):
 
 
 def attach(win):
-    """Create the one web view as a hidden child of ``win`` before it is first shown. Adding the first web view
-    to a window that is already on screen makes Qt recreate the native window (the app flickers and seems to
-    restart), so this happens up front, once."""
     global _view, _win
     _win = win
     if AVAILABLE and _view is None:
         _view = _new_view(win)
-        _view.load(QUrl("about:blank"))  # creates the GL child that makes Qt pick the window's surface type
+        _view.load(QUrl("about:blank"))
         _stow(_view)
 
 
 def _stow(v):
-    """Keep the view visible but 1×1 under the page: hiding it could let Qt switch the window back."""
     v.setGeometry(0, 0, 1, 1)
     v.show()
     v.lower()
 
 
 def park(win):
-    """Before a page is torn down: take the view out of it (back onto ``win``, stowed) so it isn't deleted
-    with the page and doesn't reload when the Model tab comes back."""
     if _view is not None and not sip.isdeleted(_view) and _view.parent() is not win:
         _view.setParent(win)
         _stow(_view)
 
 
 def view(path):
-    """The web view showing ``path``: the same widget every time (see attach / park); it reloads only when
-    another file is chosen, and the previous file's server is stopped."""
     global _view, _path, _address
     if _view is None or sip.isdeleted(_view):
-        _view, _path = _new_view(_win), None  # never without a parent: show() would open it as a window
+        _view, _path = _new_view(_win), None
     if path != _path:
         if _address:
             netron.stop(_address)

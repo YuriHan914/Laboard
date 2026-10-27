@@ -1,7 +1,3 @@
-"""Setting → New: a form of every section of a project file (and the remote logins) that writes a new laboard toml
-and loads it. Sections are grouped on the left (gcloud / az / aws / ssh as one Cloud group). [Project] is required;
-every other section has a False / True switch by its name and is written only when True ([DB]'s switch is
-[Project] DB). Nothing is written until Create and load, and an existing file is never overwritten."""
 from pathlib import Path
 
 from PyQt6.QtCore import QPointF, Qt, QTimer
@@ -22,7 +18,6 @@ def _enum(key, desc):
     return dict(key=key, desc=desc, kind="enum", opts=("CSV", "DB"))
 
 
-# (section, description, fields), in the order they are written
 SCHEMA = (
     ("Project", "Raw data is shared by every task; each task has its own labels and predictions.", (
         _text("Name", "Project name. Empty: the root folder’s name.", "cifar10-resnet"),
@@ -72,11 +67,11 @@ SCHEMA = (
         _text("user_name", "Login user. Empty: ssh’s default.", "ubuntu"),
         _text("ip", "Server address (ip or host name).", "192.168.0.10", True))),
 )
-CLOUD = ("gcloud", "az", "aws", "ssh")  # one "Cloud" group on the left
-SHOWN = {"gcloud": "Google Cloud - gcloud", "az": "Azure - az", "aws": "AWS - aws", "ssh": "SSH - ssh"}  # card titles
-REQUIRED = ("Project",)  # always written; every other section has a False / True switch
-OFF = set(CLOUD)  # sections switched off at first (DB follows [Project] DB)
-TITLE_BAR, TITLE_FG, TITLE_MUTE, CLOSE_BG = "#0e0f0c", "#e8ebe6", "#868685", "#2a2b28"  # dark in both themes
+CLOUD = ("gcloud", "az", "aws", "ssh")
+SHOWN = {"gcloud": "Google Cloud - gcloud", "az": "Azure - az", "aws": "AWS - aws", "ssh": "SSH - ssh"}
+REQUIRED = ("Project",)
+OFF = set(CLOUD)
+TITLE_BAR, TITLE_FG, TITLE_MUTE, CLOSE_BG = "#0e0f0c", "#e8ebe6", "#868685", "#2a2b28"
 
 
 def _group(section):
@@ -84,7 +79,6 @@ def _group(section):
 
 
 def _free_path(folder):
-    """laboard.toml in ``folder``, or laboard_2.toml, … when it is taken."""
     f, n = folder / "laboard.toml", 2
     while f.exists():
         f, n = folder / f"laboard_{n}.toml", n + 1
@@ -92,13 +86,12 @@ def _free_path(folder):
 
 
 class CreateProject(Overlay):
-    """The New project file window (see the module doc), at most 1180 × 900 and smaller in a smaller window."""
     W, H = 1180, 900
 
     def __init__(self, app):
         super().__init__(app)
         self.app, self.values, self.group = app, {}, "Project"
-        self.on = {name: name not in OFF for name, _, _ in SCHEMA}  # written or not; see enabled()
+        self.on = {name: name not in OFF for name, _, _ in SCHEMA}
         loaded = store.PROJECT.get("toml")
         self.folder = Path(loaded).parent if loaded else Path.home()
 
@@ -143,26 +136,22 @@ class CreateProject(Overlay):
 
     def _fit(self):
         super()._fit()
-        if getattr(self, "panel", None) is not None:  # fits the window, as large as the design at most
+        if getattr(self, "panel", None) is not None:
             self.panel.setFixedSize(min(self.W, self.width() - 48), min(self.H, self.height() - 48))
 
-    # ------------------------------------------------------------ the form
     def enabled(self, name):
-        """Whether section ``name`` is written: always for [Project], [Project] DB for [DB], else its switch."""
         if name in REQUIRED:
             return True
         return self.values.get("Project.DB") is True if name == "DB" else self.on[name]
 
     def switch(self, name, on):
         if name == "DB":
-            self.values["Project.DB"] = on  # the same choice as [Project] DB
+            self.values["Project.DB"] = on
         else:
             self.on[name] = on
         self.show_group(self.group, keep_scroll=True)
 
     def show_group(self, group, keep_scroll=False):
-        """List the groups on the left with ``group`` picked, and show its sections' cards on the right (from the top,
-        unless ``keep_scroll``: a switch flipped in place)."""
         at = self.scroll.verticalScrollBar().value() if keep_scroll else 0
         groups = list(dict.fromkeys(_group(s[0]) for s in SCHEMA))
         self.group = group if group in groups else "Project"
@@ -170,7 +159,7 @@ class CreateProject(Overlay):
         for g in groups:
             secs = [s for s in SCHEMA if _group(s[0]) == g]
             on, n = g == self.group, sum(len(s[2]) for s in secs)
-            used = any(self.enabled(s[0]) for s in secs)  # a group with nothing switched on is greyed
+            used = any(self.enabled(s[0]) for s in secs)
             self.nav.addWidget(Box(bg="sel" if on else None, radius=10, hover=None if on else "surf2",
                                    on_click=lambda g=g: self.show_group(g), layout=hbox(
                                        (Label(g, 14, 600 if on else 400, "selfg" if on else "ink" if used else "mute",
@@ -181,40 +170,35 @@ class CreateProject(Overlay):
         for name, desc, fields in SCHEMA:
             if _group(name) == self.group:
                 self.cards.addWidget(self._card(name, desc, fields))
-        QTimer.singleShot(0, lambda: self.scroll.verticalScrollBar().setValue(at))  # once the new cards are laid out
+        QTimer.singleShot(0, lambda: self.scroll.verticalScrollBar().setValue(at))
 
     def _card(self, name, desc, fields):
-        """A section's card: its name with the False / True switch (or "required"), what it is for, and its keys,
-        greyed and inert while switched off."""
         on = self.enabled(name)
         head = hbox(Label(SHOWN.get(name, name), 18, 600, "ink" if on else "mute", mono=True, lh=24), spacing=12,
                     align=Qt.AlignmentFlag.AlignVCenter)
         if name in REQUIRED:
             head.addWidget(Label("required", 11, 600, NEGATIVE, lh=14))
         head.addStretch(1)
-        if name not in REQUIRED:  # the Light / Dark switch of Setting's Appearance, smaller, at the right end
+        if name not in REQUIRED:
             head.addWidget(Segmented([(False, "False"), (True, "True")], on, lambda v, n=name: self.switch(n, v),
                                      size=12, pad=(4, 14), outer=3, gap=2))
         rows = vbox()
         for f in fields:
             key = hbox(Label(f["key"], 13, 600, mono=True, lh=18), spacing=6, align=Qt.AlignmentFlag.AlignVCenter)
-            if f.get("req"):
-                key.addWidget(Label("required", 11, 600, NEGATIVE, lh=14))
             key.addStretch(1)
-            left = vbox("stretch", key, 2, Label(f["desc"], 12, 400, "mute", wrap=True), "stretch")  # centred
+            left = vbox("stretch", key, 2, Label(f["desc"], 12, 400, "mute", wrap=True), "stretch")
             rows.addWidget(HLine())
             rows.addLayout(hbox((left, 10), 20, (self._editor(name, f), 13), margins=(0, 10, 0, 10),
                                 align=Qt.AlignmentFlag.AlignVCenter))
         body = wrap(vbox(Label(desc, 13, 400, "body", wrap=True), 8, rows))
         if not on:
-            body.setEnabled(False)  # kept as typed, but not written
+            body.setEnabled(False)
             fade = QGraphicsOpacityEffect(body)
             fade.setOpacity(0.4)
             body.setGraphicsEffect(fade)
         return card(head, 4, body, pad=(24, 20, 24, 20))
 
     def _editor(self, section, f):
-        """The input for one key: a text box, a False / True or CSV / DB switch, or task chips."""
         fid = f"{section}.{f['key']}"
         if f["kind"] == "text":
             box = LineEdit(f.get("ph", ""), size=13, pad=(8, 12), mono=True)
@@ -229,7 +213,7 @@ class CreateProject(Overlay):
             def pick(v):
                 self.values[fid] = v
                 seg.select(v)
-                if fid == "Project.DB":  # [DB]'s switch is the same choice
+                if fid == "Project.DB":
                     self.show_group(self.group, keep_scroll=True)
             seg = Segmented(opts, cur, pick, size=13, pad=(6, 16))
             return wrap(hbox(seg, "stretch"))
@@ -239,7 +223,6 @@ class CreateProject(Overlay):
         return wrap(chips)
 
     def _chip(self, fid, option):
-        """One task of the Task chips: dark when picked; a click picks it or not."""
         lbl = Label(option, 12, 600, lh=18)
         chip = Box(bg=None, radius=999, layout=hbox(lbl, margins=(12, 5, 12, 5)))
 
@@ -258,14 +241,11 @@ class CreateProject(Overlay):
         paint()
         return chip
 
-    # ------------------------------------------------------------ writing
     def missing(self):
-        """``[section] key`` of the required keys left empty in the sections switched on."""
         return [f"[{name}] {f['key']}" for name, _, fields in SCHEMA if self.enabled(name)
                 for f in fields if f.get("req") and not str(self.values.get(f"{name}.{f['key']}") or "").strip()]
 
     def text(self):
-        """The toml of the form: [Project] and every section switched on."""
         lines = ["# Laboard project file, made with Setting → New. Empty values (\"\") count as not set."]
         for name, _, fields in SCHEMA:
             if not self.enabled(name):
@@ -283,7 +263,6 @@ class CreateProject(Overlay):
         return "\n".join(lines) + "\n"
 
     def create(self):
-        """Write the file where Save to says (relative: under the loaded project's folder) and load it."""
         raw = self.path.text().strip()
         if not raw:
             return self._fail("Type where to save the project file.")

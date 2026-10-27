@@ -1,14 +1,3 @@
-"""Ground truth / prediction values as text and as shapes drawn over the image.
-
-A label is a plain value (a class name) or json in coco format, as made by Data_prep/raw_to_csv:
-
-* ``["cat", "dog"]``: class names (classification);
-* ``[{"category", "bbox"}]``: boxes, coco [x, y, w, h] (object detection);
-* ``[{"category", "segmentation"}]``: polygons [[x1, y1, x2, y2, …], …] or uncompressed RLE
-  {"counts", "size"} (instance / semantic segmentation);
-* ``[{"category", "bbox", "keypoints"}]``: [x, y, v] per keypoint (pose-estimation);
-* ``{"mask_path", "segments_info"}``: a coco panoptic png and its segments (panoptic segmentation).
-"""
 import json
 import zlib
 from collections import Counter
@@ -20,13 +9,11 @@ from PyQt6.QtGui import QBitmap, QColor, QImage, QPainter, QPainterPath, QPen, Q
 from . import remote
 from .theme import font
 
-# distinct hues that read over any photo; a category always gets the same one
 PALETTE = ("#ff5c5c", "#ffb020", "#f7e14b", "#7bd84a", "#2ec4b6", "#3fa7ff", "#7c6cff", "#d45cff", "#ff6fb1",
            "#00e0a0", "#ff8a3d", "#9fe870")
-# coco person keypoints (17): limbs as 1-based keypoint pairs
 COCO_SKELETON = ((16, 14), (14, 12), (17, 15), (15, 13), (12, 13), (6, 12), (7, 13), (6, 7), (6, 8), (7, 9), (8, 10),
                  (9, 11), (2, 3), (1, 2), (1, 3), (2, 4), (3, 5), (4, 6), (5, 7))
-MAX_TEXT = 60  # characters of a summary
+MAX_TEXT = 60
 
 
 @lru_cache(maxsize=256)
@@ -38,7 +25,6 @@ def _loads(text):
 
 
 def parse(value):
-    """The label as a list / dict when it is json of one, else the value itself (None for none)."""
     if value is None or isinstance(value, (list, dict)):
         return value
     v = _loads(str(value)) if str(value)[:1] in "[{" else value
@@ -46,14 +32,12 @@ def parse(value):
 
 
 def _objects(v):
-    """The {"category", …} objects of a parsed label (panoptic: its segments)."""
     if isinstance(v, dict):
         v = v.get("segments_info", [])
     return [o for o in v if isinstance(o, dict)] if isinstance(v, list) else []
 
 
 def categories(value):
-    """Class names a label holds: the value itself, a list of names, or the objects' categories."""
     v = parse(value)
     if v is None:
         return []
@@ -65,7 +49,6 @@ def categories(value):
 
 
 def summary(value):
-    """Short text for a label: as is, the names of a list, or the object count and categories."""
     v = parse(value)
     if v is None:
         return None
@@ -87,7 +70,6 @@ def color(category):
 
 
 def _polygons(seg):
-    """QPainterPath of a coco segmentation: polygons, or uncompressed RLE (column-major runs, 0s first)."""
     path = QPainterPath()
     path.setFillRule(Qt.FillRule.WindingFill)
     if isinstance(seg, list):
@@ -101,7 +83,7 @@ def _polygons(seg):
         h = seg["size"][0]
         at = 0
         for i, n in enumerate(seg["counts"]):
-            if i % 2:  # a run of 1s, split at column ends
+            if i % 2:
                 start, end = at, at + n
                 while start < end:
                     x, y = divmod(start, h)
@@ -113,8 +95,6 @@ def _polygons(seg):
 
 
 def _panoptic(path, segments):
-    """The segments of a coco panoptic png (a pixel's id = R + 256 G + 256² B), each in its category's colour."""
-    # MaskOutColor: the matching pixels are black (index 0), which a QBitmap / QRegion counts as set
     ids = QImage(path).convertToFormat(QImage.Format.Format_RGB32)
     if ids.isNull():
         return None
@@ -135,17 +115,15 @@ def _panoptic(path, segments):
 
 
 class Overlay:
-    """The shapes of one label, drawn by ``Stage`` over its image."""
-
     def __init__(self, value):
         v = parse(value)
-        self.shapes = []  # (category, outline path, filled, keypoints [(x, y)] , limbs [(i, j)])
+        self.shapes = []
         self.mask = None
         if isinstance(v, dict) and v.get("mask_path"):
             self.mask = _panoptic(remote.local(str(v["mask_path"])), _objects(v))
         for o in _objects(v):
-            cat = o.get("category", "")
-            if isinstance(v, dict):  # panoptic segments: the mask is drawn, the boxes only carry the names
+            cat = str(o.get("category", ""))
+            if isinstance(v, dict):
                 path = QPainterPath()
                 if isinstance(o.get("bbox"), list) and len(o["bbox"]) == 4:
                     path.addRect(QRectF(*o["bbox"]))
@@ -167,7 +145,6 @@ class Overlay:
         return bool(self.shapes) or self.mask is not None
 
     def paint(self, p, rect, scale):
-        """Draw over the image shown in ``rect`` at ``scale`` (view px per image px)."""
         p.save()
         to_view = QTransform(scale, 0, 0, scale, rect.x(), rect.y())
         if self.mask is not None:
@@ -199,10 +176,10 @@ class Overlay:
                 names.append((cat, c, QPointF(box.x(), box.y()) if filled is not None else box.center()))
         p.setFont(font(11, 600))
         fm = p.fontMetrics()
-        for cat, c, at in names:  # names last, so no shape covers them
+        for cat, c, at in names:
             w = fm.horizontalAdvance(cat) + 10
             chip = QRectF(at.x(), at.y() - 18, w, 18) if at.y() >= rect.y() + 18 else QRectF(at.x(), at.y(), w, 18)
-            if self.mask is not None:  # panoptic: centred on the segment
+            if self.mask is not None:
                 chip.moveCenter(at)
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(c)

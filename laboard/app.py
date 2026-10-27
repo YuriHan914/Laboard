@@ -1,4 +1,3 @@
-"""Laboard main window: title bar, top bar, sidebar + page, status bar."""
 import argparse
 import subprocess
 import sys
@@ -48,8 +47,6 @@ class WindowButton(QWidget):
 
 
 class TitleBar(QFrame):
-    """Dark 40px title bar, used when the window runs frameless."""
-
     def __init__(self, win):
         super().__init__()
         self.win = win
@@ -57,7 +54,7 @@ class TitleBar(QFrame):
         self.setStyleSheet("TitleBar{background:#0e0f0c;border-bottom:1px solid #2a2b28;}")
         left = hbox(Logo(22), 8, Label("Laboard", 13, 600, "#e8ebe6"), "stretch", align=Qt.AlignmentFlag.AlignVCenter)
         title = f"{store.PROJECT['name']} — {store.PROJECT['toml']}" if store.PROJECT else "No project loaded"
-        mid = Label(title, 13, 400, "#868685", align=Qt.AlignmentFlag.AlignCenter, select=False)  # dragging it moves the window
+        mid = Label(title, 13, 400, "#868685", align=Qt.AlignmentFlag.AlignCenter, select=False)
         btns = hbox("stretch", WindowButton("min", win.showMinimized), WindowButton("max", self.toggle_max),
                     WindowButton("close", win.close), spacing=8)
         self.setLayout(hbox((left, 1), (mid, 2), (btns, 1), margins=(16, 0, 10, 0), spacing=12))
@@ -74,7 +71,6 @@ class TitleBar(QFrame):
 
 
 def _saved_rows():
-    """Rows a page of Result / Hyperparameter tables as last picked in Setting (QSettings), else the default."""
     try:
         n = int(QSettings("Laboard", "Laboard").value("table_rows", store.TABLE_ROWS_DEFAULT))
     except (TypeError, ValueError):
@@ -82,21 +78,16 @@ def _saved_rows():
     return n if n in store.TABLE_ROWS else store.TABLE_ROWS_DEFAULT
 
 
-CENTER_MIN = 620  # every page's centre shrinks with the window down to this (about the Data viewer's own minimum)
+CENTER_MIN = 620
 
 LOG_FILTERS = [("all", "All"), ("local", "Local"), ("remote", "Remote")]
 
 
 def in_filter(c, kind):
-    """Local: the local branch's history (unpushed + shared). Remote: the upstream's (shared + not pulled)."""
     return kind == "all" or c[7] in (kind, "both")
 
 
 class Dialog(Overlay):
-    """Modal card over a dimmed window (``Overlay``): icon, title, text, an optional ``body`` widget (e.g. an input)
-    and buttons: ``actions`` [(text, variant, on_click)], by default one dismiss button. An on_click of None closes
-    the dialog."""
-
     def __init__(self, win, title, text, button="Cancel", body=None, actions=None):
         super().__init__(win)
         card = Box(bg="surf", radius=24)
@@ -114,8 +105,6 @@ class Dialog(Overlay):
 
 
 class CommitPicker(QFrame):
-    """'Show project as of' popup: git log grouped by day, split into local and remote commits."""
-
     def __init__(self, app, anchor):
         super().__init__(None, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint | Qt.WindowType.NoDropShadowWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -183,7 +172,7 @@ class CommitPicker(QFrame):
             empty = Label("No commits here.", 13, 400, "mute")
             empty.setContentsMargins(10, 10, 10, 10)
             self.rows.addWidget(empty)
-        self.rows.invalidate()  # the scroll area was built empty; size it to the rows just added
+        self.rows.invalidate()
         self.sc.setFixedHeight(min(480, self.sc.widget().layout().sizeHint().height() + 4))
         self.adjustSize()
         pos = self.anchor.mapToGlobal(QPoint(self.anchor.width(), self.anchor.height()))
@@ -192,7 +181,7 @@ class CommitPicker(QFrame):
     def set_filter(self, kind):
         self.app.s.log_filter = kind
         if self.seg is not None:
-            self.seg.select(kind)  # the popup isn't rebuilt: move the white segment to the choice here
+            self.seg.select(kind)
         self.populate()
 
     def fetch(self):
@@ -216,45 +205,42 @@ class MainWindow(QMainWindow):
         if frameless:
             self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
         self.resize(1920, 1080)
-        self.setMinimumHeight(760)  # width: the top bar up to the Setting tab, which leaves the centre CENTER_MIN
+        self.setMinimumHeight(760)
         self._status_msg = None
         self.dialog = None
-        self.toml_text = None  # the loaded project file as edited in Setting, or None: as on disk
-        self.side_widths = {}  # side panel widths the user dragged, by SideHandle key, as shares of side_scale()
+        self.toml_text = None
+        self.side_widths = {}
         self.handles, self.page, self.center_min, self.own_centre = [], None, CENTER_MIN, None
-        self.top_min = 0  # the top bar's minimum width, which is the window's
-        self._left_page = False  # the next render shows another tab: start its scroll at the left
-        netronview.attach(self)  # before the window is shown, so adding the graph later doesn't recreate the window
+        self.top_min = 0
+        self._left_page = False
+        netronview.attach(self)
         self.reset_state(start_tab)
         self.render()
 
     @staticmethod
     def view_state():
-        """How a page is being looked at (filters, modes, zoom, ticks, table page, typed input), as it starts. It
-        lasts only while the user stays on the page: switching tabs puts all of it back to this."""
         return dict(
             hist_filter="all", open_commit=_first(store.COMMITS) or None, smooth=0.6, split_filter="all",
             view_mode="raw", zoom=None, pending_toml=None, pt_view="inferred", log_filter="all",
-            toml_view="fields",  # Setting: project file shown as fields or as text
-            setting_scroll=0,  # Setting: how far the page is scrolled, kept when Edit → Save reloads it
-            table_page={},  # Result csv table: page shown, by file
-            table_open=set(),  # big Result csv tables the user unfolded, by file
-            table_view={},  # Result csv tables: dict(sort=(column, ascending) | None, filters={column: text}, hidden=set()), by file
-            run_page={},  # Hyperparameter tables: page shown, by (run, file)
-            run_open=set(),  # Hyperparameter tables the user opened (all start closed), by (run, file)
-            hp_query="",  # Hyperparameter: the search typed above the config tables
-            chart_sel={},  # Result charts the user ticked: (file, tag) -> colour slot in the comparison
-            chart_size={},  # Result charts the user resized: (file, tag) or "compare" -> (width or None, plot height)
-            open_dirs=dict(model=set(), hyperparameter=set(), result=set()))  # sidebar tree folders the user expanded
+            toml_view="fields",
+            setting_scroll=0,
+            table_page={},
+            table_open=set(),
+            table_view={},
+            run_page={},
+            run_open=set(),
+            hp_query="",
+            chart_sel={},
+            chart_size={},
+            open_dirs=dict(model=set(), hyperparameter=set(), result=set()))
 
     def reset_state(self, tab="home"):
-        """Selections pointing at the first item of what ``store`` holds; empty strings when it holds nothing."""
         folder = next(iter(store.DATA_FOLDERS), "")
-        prefs = getattr(self, "s", None)  # what's picked in Setting lasts across tabs and projects
+        prefs = getattr(self, "s", None)
         self.s = SimpleNamespace(
-            table_rows=prefs.table_rows if prefs else _saved_rows(),  # Result / Hyperparameter tables: rows a page
+            table_rows=prefs.table_rows if prefs else _saved_rows(),
             tab=tab, folder=folder, view_commit=None, infer_source=next(iter(store.INFERENCE), None),
-            task=store.TASKS[0] if store.TASKS else None,  # Data: the task whose labels and predictions are shown
+            task=store.TASKS[0] if store.TASKS else None,
             sel=dict(home=store.PROJECT.get("hot_file", ""), data=store.DATA_FOLDERS[folder]["files"][0] if folder else "",
                      model=_first(store.MODEL_FILES), hyperparameter=_first(store.RUNS), result=_first(store.RESULT_FILES),
                      setting=_first(store.RECENT_PROJECTS)),
@@ -263,12 +249,10 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"Laboard — {store.PROJECT['name']} — {store.PROJECT['toml']}" if store.PROJECT else "Laboard")
 
     def load_project(self, path, commit=None, text=None):
-        """Load ``path``; with ``commit``, show the project as of that commit (the repository itself is only read).
-        ``text``: the project file's content edited in Setting, used instead of the file (which isn't written)."""
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
             notes = project.load(path, commit, text)
-        except Exception as e:  # missing file, bad toml, unexpected layout: store still holds the previous project
+        except Exception as e:
             self._status_msg = f"Could not load {path}{' at ' + commit if commit else ''}: {e}"
             self.render()
             return
@@ -277,8 +261,8 @@ class MainWindow(QMainWindow):
         same = store.PROJECT["toml"] == getattr(self, "_toml", None)
         old = self.s
         self.reset_state(self.s.tab)
-        if same:  # switching commits stays on the page: keep how it is viewed, and what's selected where it still exists
-            for k in self.view_state().keys() - {"open_commit"}:  # the commit list itself changed
+        if same:
+            for k in self.view_state().keys() - {"open_commit"}:
                 setattr(self.s, k, getattr(old, k))
             if old.infer_source in store.INFERENCE:
                 self.s.infer_source = old.infer_source
@@ -298,36 +282,25 @@ class MainWindow(QMainWindow):
         self.render()
 
     def show_dialog(self, title, text, body=None, actions=None):
-        """Open a modal ``Dialog`` (see there) and return it."""
         self.dialog = Dialog(self, title, text, body=body, actions=actions)
         self.dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.dialog.open()
         return self.dialog
 
     def show_no_project(self):
-        self.dialog = Dialog(self, "Load a project file", "No project is loaded yet. Go to Setting, open Load project file "
-                                                          "and click Browse to load a laboard.toml.", button="Close")
-        self.dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-        self.dialog.open()
+        self.show_dialog("Load a project file", "No project is loaded yet. Go to Setting, open Load project file "
+                                                "and click Browse to load a laboard.toml.", actions=[("Close", "tertiary", None)])
 
     def show_commit(self, commit):
-        """Show every page as of ``commit`` (None: the latest)."""
         self.load_project(store.PROJECT["toml"], commit, self.toml_text)
 
     def side_scale(self):
-        """What side panel shares are of: the design width, so a share is a fixed size in px (a panel doesn't grow
-        or shrink with the window; it only gives way when there's no room, see fit_sides)."""
         return SideHandle.DESIGN_WIDTH
 
     def side_room(self):
-        """Width left for the side panels once the margins, the open panels' gutters and a 1px centre are taken
-        out of the window's."""
         return self.width() - 24 - 12 * sum(not h.closed for h in self.handles) - 1
 
     def drag_side(self, handle, w, start):
-        """``handle``'s panel dragged to ``w`` px (``start``: every panel's width when the drag began). Widening it
-        first narrows the centre down to its minimum, then the other panel as if the user dragged that one too
-        (hiding it under SNAP); the centre never goes below its minimum."""
         scale, room = self.side_scale(), self.side_room()
         w = max(0, min(w, handle.max_width(), room + 1 - self.center_min))
         w = 0 if w < SideHandle.SNAP else w
@@ -342,57 +315,42 @@ class MainWindow(QMainWindow):
         self.fit_sides()
 
     def fit_sides(self):
-        """Size the side panels to their own widths (shares of side_scale(), within SideHandle max_width) as far as
-        the window allows with the centre at center_min. The left panel is filled first and the right one gets
-        what is left: as the window narrows the right panel shrinks away first, then the left one; as it widens
-        the left one grows back to its width first, then the right one, a pixel at a time. A panel squeezed to
-        nothing hides with its gutter, and at the window's minimum width both are gone and the centre has it all,
-        so the page doesn't scroll sideways. A page with its own centre_min (Result's charts) narrows to that first
-        and keeps its panels until then, even at the window's minimum width; with ``fold_left`` the right panel is
-        filled first, so past that the left one folds away once narrower than ``fold_left`` px. Any panel squeezed
-        below SideHandle.SNAP folds."""
-        # the left panel reaches 0 as the window reaches its minimum, unless the page's own minimum is narrower
         centre = self.own_centre or max(self.center_min, self.top_min - 24)
-        free = self.width() - 24 - centre  # for the panels and their gutters
+        free = self.width() - 24 - centre
         fold = getattr(self.page, "fold_left", 0)
         order = self.handles[::-1] if fold else self.handles
-        for h in order:  # left first, or right first with fold_left
+        for h in order:
             want = 0 if h.closed else min(round(h.share() * self.side_scale()), h.max_width())
             w = max(0, min(want, free - 12))
             least = fold if fold and h is self.handles[0] else SideHandle.SNAP
-            w = 0 if w < min(want, least) else w  # squeezed too narrow to use: folded
-            # a gutter stays for a panel the user dragged shut (to drag it back), not for one with no room
+            w = 0 if w < min(want, least) else w
             show = not h.closed and free >= 12 and (w > 0 or want == 0)
             h.apply(w if show else 0)
             h.setVisible(show)
             free -= (12 + w) if show else 0
         if self.page is not None:
-            # at least 1px: Qt reads a minimum of 0 as unset and falls back to the content's own minimum
             self.page.setMinimumWidth(max(1, min(self.center_min, free + centre)))
 
     def show_right(self, on):
-        """Open the right panel (at the width it had) with its gutter, or close both: for a page whose panel only
-        has something to show sometimes, such as Result's comparison."""
         h = self.handles[-1]
         if on and h.share() == 0:
             self.side_widths[h.key] = self.side_widths.pop(h.key + ":last", h.default)
         elif not on and h.share() > 0:
             self.side_widths[h.key + ":last"] = h.share()
             self.side_widths[h.key] = 0
-        h.closed = not on  # fit_sides shows or hides it
+        h.closed = not on
         self.fit_sides()
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
         self.fit_sides()
 
-    # ---------------------------------------------------------- state
     def set(self, **kw):
         if "theme" in kw:
             theme.set_theme(kw.pop("theme"))
-        if "table_rows" in kw:  # picked in Setting: also kept for the next start
+        if "table_rows" in kw:
             QSettings("Laboard", "Laboard").setValue("table_rows", kw["table_rows"])
-        if kw.get("tab", self.s.tab) != self.s.tab:  # leaving a page drops everything adjusted on it
+        if kw.get("tab", self.s.tab) != self.s.tab:
             vars(self.s).update(self.view_state())
             self.side_widths.clear()
             self._left_page = True
@@ -405,19 +363,16 @@ class MainWindow(QMainWindow):
         self.set(open_dirs={**self.s.open_dirs, tab: dirs - {path} if path in dirs else dirs | {path}})
 
     def pick(self, tab, name):
-        """Select ``name`` on ``tab``. A page with ``select(app, name)`` (Data) shows it in place, without the
-        flicker of rebuilding the window; otherwise the window re-renders."""
         old, self.s.sel = self.s.sel, {**self.s.sel, tab: name}
         page = PAGES.get(tab)
         if tab == self.s.tab and hasattr(page, "select") and page.select(self, name):
-            if not self.file_list.mark(name):  # its row isn't among the rows built: rebuild the list only
+            if not self.file_list.mark(name):
                 self.file_list.populate(self.file_list.search.text())
             return
         self.s.sel = old
         self.set(sel={**self.s.sel, tab: name})
 
     def view_index(self):
-        """Index in COMMITS of the commit shown: the chosen one, else HEAD (remote-only commits may come before it)."""
         hashes = [c[0] for c in store.COMMITS]
         for h in (self.s.view_commit, store.PROJECT.get("head")):
             if h in hashes:
@@ -425,7 +380,6 @@ class MainWindow(QMainWindow):
         return 0
 
     def fetch_remote(self):
-        """git fetch the upstream's remote (updates remote-tracking refs only), then reload the current view."""
         P = store.PROJECT
         remote = P["upstream"].split("/", 1)[0]
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
@@ -445,9 +399,8 @@ class MainWindow(QMainWindow):
         self.status_label.setText(msg)
         self.status_label.setToolTip(msg)
 
-    # ---------------------------------------------------------- build
     def render(self):
-        netronview.park(self)  # keep the model graph's web view out of the page about to be deleted
+        netronview.park(self)
         old = self.centralWidget()
         root = QWidget()
         root.setObjectName("root")
@@ -458,10 +411,9 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.top_bar())
         body = hbox(margins=(12, 12, 12, 12))
         side = sidebar.build(self)
-        page = PAGES[self.s.tab].build(self)  # the centre, or (centre, right panel)
+        page = PAGES[self.s.tab].build(self)
         page, right = page if isinstance(page, tuple) else (page, None)
         page.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        # a page may set its own narrowest centre (centre_min), which it reaches before the side panels shrink
         self.own_centre = getattr(page, "centre_min", None)
         self.page, self.center_min = page, self.own_centre or max(CENTER_MIN, page.minimumSizeHint().width())
         self.handles = [SideHandle(side, self, f"left:{self.s.tab}")]
@@ -472,18 +424,14 @@ class MainWindow(QMainWindow):
             self.handles.append(SideHandle(right, self, self.s.tab, right=True))
             body.addWidget(self.handles[1])
             body.addWidget(right)
-        # fit_sides hides the panels before the centre would go below its minimum; scrolling sideways is only a fallback
-        # for a centre whose own minimum is wider than the window allows
         old_x = self.body_scroll.horizontalScrollBar().value() if old is not None and not self._left_page else 0
         self._left_page = False
-        # wrapped before the panels are shown or hidden: setVisible on a widget with no parent yet opens it as a
-        # window of its own for a moment (a popup that flashes on every re-render)
         self.body_scroll = Scroll(wrap(body), horizontal=True)
-        if right is not None and hasattr(page, "right_on"):  # a panel that only sometimes has something to show
+        if right is not None and hasattr(page, "right_on"):
             self.show_right(page.right_on)
         self.fit_sides()
         self.body_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        QTimer.singleShot(0, lambda: self.body_scroll.horizontalScrollBar().setValue(old_x))  # once the range is known
+        QTimer.singleShot(0, lambda: self.body_scroll.horizontalScrollBar().setValue(old_x))
         lay.addWidget(self.body_scroll, 1)
         lay.addWidget(self.status_bar())
         root.setLayout(lay)
@@ -491,7 +439,7 @@ class MainWindow(QMainWindow):
         if old is not None:
             old.deleteLater()
         if self.dialog is not None and not sip.isdeleted(self.dialog) and self.dialog.isVisible():
-            self.dialog.raise_()  # the new page was stacked above it
+            self.dialog.raise_()
 
     def top_bar(self):
         bar = Box(bg="surf", radius=0)
@@ -522,7 +470,6 @@ class MainWindow(QMainWindow):
         picker.setMinimumWidth(300)
         if store.COMMITS:
             picker.clicked.connect(lambda: CommitPicker(self, picker).show())
-        # the 68px logo sits outside the centred row so it doesn't stretch the chip and picker to its height
         right = Collapsing(chip, picker)
         row = hbox(tabs, 20, (right, 1), align=Qt.AlignmentFlag.AlignVCenter)
         bar.setLayout(hbox(brand, 28, (row, 1), margins=(24, 0, 20, 0)))
@@ -532,7 +479,7 @@ class MainWindow(QMainWindow):
     def status_bar(self):
         bar = Box(bg="surf", radius=0)
         bar.setFixedHeight(30)
-        bar.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)  # clips its text instead of widening the window
+        bar.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         lay = hbox(spacing=0, margins=(18, 0, 18, 0))
         if store.STATUS["watching"]:
             lay.addWidget(Dot(theme.POSITIVE, 7))
@@ -564,7 +511,7 @@ def main(argv=None):
     qapp = QApplication([sys.argv[0], *qt_args])
     qapp.setApplicationName("Laboard")
     qapp.setDesktopFileName("laboard")
-    qapp.setWindowIcon(theme.logo_icon())  # title bar / taskbar / alt-tab
+    qapp.setWindowIcon(theme.logo_icon())
     theme.load_fonts()
     qapp.setFont(theme.font(14))
     win = MainWindow(args.tab or ("home" if args.project else "setting"), args.theme, args.frameless)

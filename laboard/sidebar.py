@@ -1,4 +1,3 @@
-"""Left sidebar: per-tab file lists (plus the project card on Home and folders on Data)."""
 from pathlib import Path
 
 from PyQt6.QtCore import QUrl, Qt
@@ -25,10 +24,6 @@ TREE_TABS = ("model", "hyperparameter", "result")
 
 
 def _items(app):
-    """Rows for the file list: dicts with label, ext, meta, dot, depth, kind ('file'|'folder'|'root').
-
-    On TREE_TABS a row also has ``key`` (what selecting it picks) and ``folder`` (its place in the tree).
-    """
     s, tab = app.s, app.s.tab
     if tab == "home":
         return ("Root folders", f"{len(store.ROOT_FOLDERS)} folders", "Filter folders",
@@ -78,7 +73,7 @@ def _row(app, it):
     lay.addWidget(name, 1)
     if it.get("meta"):
         meta = Label(it["meta"], 12, 400, "mute", elide=kind == "root", align=Qt.AlignmentFlag.AlignRight)
-        if kind == "root":  # folder paths can be long; keep room for the name
+        if kind == "root":
             meta.setMaximumWidth(120)
         lay.addWidget(meta)
     if kind == "root":
@@ -90,7 +85,7 @@ def _row(app, it):
     row = Box(bg="sel" if sel else None, radius=10, layout=lay, on_click=on_click,
               hover=None if sel or on_click is None else "surf2")
     row.setMinimumHeight(34)
-    row.key = key if kind == "file" else None  # for FileList.mark
+    row.key = key if kind == "file" else None
     row.name = name
     return row
 
@@ -126,7 +121,7 @@ def _folders_card(app):
                    margins=(10 + (14 if "/" in name else 0), 7, 10, 7))
         rows.addWidget(Box(bg="sel" if on else None, radius=10, layout=lay, hover=None if on else "surf2",
                            on_click=lambda n=name, f=fd: app.set(folder=n, sel={**s.sel, "data": f["files"][0]})))
-    if len(store.DATA_FOLDERS) > 9:  # many folders: scroll instead of pushing the file list off screen
+    if len(store.DATA_FOLDERS) > 9:
         sc = Scroll(wrap(vbox(rows, "stretch")))
         sc.setFixedHeight(9 * 36)
         body.addWidget(sc)
@@ -136,8 +131,6 @@ def _folders_card(app):
 
 
 def _tree(app, items, query):
-    """Folder rows + file rows for TREE_TABS. Folders start collapsed and open when clicked; a query opens every
-    folder holding a match. A folder whose only content is one subfolder is merged into it (a/b/c/)."""
     root = {"dirs": {}, "files": []}
     for it in items:
         node = root
@@ -174,7 +167,7 @@ def _tree(app, items, query):
 
 
 class FileList(Box):
-    MAX_ROWS = 200  # a db folder can hold thousands of files; build widgets for a window around the selection
+    MAX_ROWS = 200
 
     def __init__(self, app):
         self.app = app
@@ -198,8 +191,6 @@ class FileList(Box):
         self.populate("")
 
     def mark(self, key):
-        """Show ``key``'s row as the selected one in place: no rebuild, so the list keeps its scroll position
-        (it only moves when the row is out of view). False when the row isn't among the rows built."""
         rows = [w for w in (self.list.itemAt(i).widget() for i in range(self.list.count())) if getattr(w, "key", None)]
         hit = next((r for r in rows if r.key == key), None)
         if hit is None:
@@ -233,7 +224,7 @@ class FileList(Box):
             self.list.addWidget(more)
 
 
-WIDTH = 320  # built width of the left panel (Home's git history and Model's properties match it)
+WIDTH = 320
 
 
 def build(app):

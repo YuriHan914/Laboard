@@ -1,4 +1,3 @@
-"""Custom-painted charts and viewers."""
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QPainter, QPainterPath, QPen, QPixmap
 from PyQt6.QtWidgets import QSizePolicy, QWidget
@@ -16,8 +15,6 @@ def _aa(w):
 
 
 class StackedBar(QWidget):
-    """Horizontal pill split into coloured segments: [(fraction, colour)]."""
-
     def __init__(self, segments, height=12, gap=2, min_px=3):
         super().__init__()
         self.segments, self.gap, self.min_px = segments, gap, min_px
@@ -37,8 +34,6 @@ class StackedBar(QWidget):
 
 
 class Meter(QWidget):
-    """Progress bar: track + rounded fill."""
-
     def __init__(self, pct, height=6, fill="ink", track="surf2"):
         super().__init__()
         self.pct, self.fill, self.track = pct, fill, track
@@ -57,8 +52,6 @@ class Meter(QWidget):
 
 
 class DataChangeChart(QWidget):
-    """Images added (up, green) and removed (down, red) per data commit."""
-
     def __init__(self, changes, vmax):
         super().__init__()
         self.changes, self.vmax = changes, vmax
@@ -110,8 +103,6 @@ class DataChangeChart(QWidget):
 
 
 class AccuracyChart(QWidget):
-    """results/accuracy.csv per commit: loss lines (left axis) over ms/image bars (right axis)."""
-
     PLOT_H = 200
 
     def __init__(self, rows):
@@ -169,23 +160,16 @@ class AccuracyChart(QWidget):
             p.drawText(QRectF(x, H + 22, cw, 14), Qt.AlignmentFlag.AlignCenter, model)
 
 
-# Categorical series colours in fixed slot order (validated for adjacent-pair colour-blind separation on the
-# light #ffffff and dark #1a1b18 surfaces). Three light slots sit under 3:1 against white, so every chart that
-# uses them also shows a legend with the series names. There are eight; slots past them reuse the colours from
-# the start, dashed, rather than inventing hues that can't be told apart.
 SERIES = dict(light=["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"],
               dark=["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767"])
 
 
 def series_style(slot):
-    """(colour, dashed) for a series slot."""
     colors = SERIES[theme.current]
     return colors[slot % len(colors)], slot >= len(colors)
 
 
 class Swatch(QWidget):
-    """Legend key for a line series: a short stroke in its colour, dashed if the series is."""
-
     def __init__(self, color, dashed=False):
         super().__init__()
         self.color, self.dashed = color, dashed
@@ -201,28 +185,20 @@ class Swatch(QWidget):
 
 
 class LineChart(QWidget):
-    """Result-page chart: series overlaid, values normalised to 0..1 by the caller.
-
-    The pointer reads values out: a hairline snaps to the nearest data point and a tooltip next to the cursor
-    lists every series there (``set_hover``). Ctrl+wheel zooms the x axis around the cursor, back out to the
-    whole range, and dragging moves a zoomed view sideways; the x tick labels follow the view (``set_axis``).
-    A plain wheel still scrolls the page, and a click that isn't a drag still reaches the card around it.
-    """
-
     PLOT_H = 200
-    LEFT = 44  # px for the y labels
-    MAX_ZOOM = 50  # the view can narrow to 1/50 of the x range
-    Y_STEP, X_STEP = 100, 180  # about one y tick per this many px of height, one x tick per this much width
+    LEFT = 44
+    MAX_ZOOM = 50
+    Y_STEP, X_STEP = 100, 180
 
     def __init__(self, y_labels, x_labels, plot_h=PLOT_H):
         super().__init__()
         self.y_labels, self.x_labels, self.plot_h = y_labels, x_labels, plot_h
-        self.series = []  # [(values, colour, width)] spaced evenly, or (..., x positions 0..1[, dashed])
+        self.series = []
         self.hover_rows, self.x_name, self.pointer = [], "", None
-        self.x_value = None  # x position 0..1 -> the x it stands for; set, the tick labels follow zooming
-        self.y_range = None  # (lo, hi, format); set, the y ticks are worked out for the chart's height
-        self.view = (0.0, 1.0)  # the part of the x range shown
-        self.pan = None  # (pointer x, view) when the press began; ``moved`` once it turned into a drag
+        self.x_value = None
+        self.y_range = None
+        self.view = (0.0, 1.0)
+        self.pan = None
         self.moved = False
         self.setFixedHeight(plot_h + 8 + 12 + 8)
         self.setMouseTracking(True)
@@ -237,24 +213,18 @@ class LineChart(QWidget):
         self.update()
 
     def set_y_range(self, lo, hi, fmt):
-        """The values at the plot's bottom and top; a taller chart gets more ticks (Y_STEP)."""
         self.y_range = (lo, hi, fmt)
         self.update()
 
     def set_axis(self, x_value, x_name):
-        """Label x ticks with ``x_value(position 0..1)`` (and ``x_name`` on the last), so zooming relabels them."""
         self.x_value, self.x_name = x_value, x_name
         self.update()
 
     def set_hover(self, rows):
-        """What the pointer reads out, per series: dict(name, color, dashed, x01, y01, xs, ys, smooth), where x01/y01
-        are the plotted positions (0..1) and xs/ys the data (smooth: the smoothed values drawn, or None)."""
         self.hover_rows = rows
         self.update()
 
-    # ---------------------------------------------------------- view
     def _sx(self, f):
-        """Screen x of x position ``f`` (0..1) in the current view."""
         v0, v1 = self.view
         return self.LEFT + (f - v0) / (v1 - v0) * (self.width() - self.LEFT)
 
@@ -264,9 +234,9 @@ class LineChart(QWidget):
 
     def wheelEvent(self, e):
         if not e.modifiers() & Qt.KeyboardModifier.ControlModifier or not e.angleDelta().y():
-            return super().wheelEvent(e)  # the page scrolls
+            return super().wheelEvent(e)
         v0, v1 = self.view
-        at = min(max(self._fx(e.position().x()), v0), v1)  # keep the x under the cursor in place
+        at = min(max(self._fx(e.position().x()), v0), v1)
         span = min(max((v1 - v0) / 1.25 ** (e.angleDelta().y() / 120), 1 / self.MAX_ZOOM), 1.0)
         lo = at - (at - v0) / (v1 - v0) * span
         lo = min(max(lo, 0.0), 1.0 - span)
@@ -279,14 +249,14 @@ class LineChart(QWidget):
         if self.pan and self.moved:
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
         elif self.view != (0.0, 1.0):
-            self.setCursor(Qt.CursorShape.OpenHandCursor)  # zoomed: there is somewhere to drag to
+            self.setCursor(Qt.CursorShape.OpenHandCursor)
         else:
-            self.unsetCursor()  # the card's
+            self.unsetCursor()
 
     def mousePressEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton:
             self.pan, self.moved = (e.position().x(), self.view), False
-        e.ignore()  # the card still sees the press (a plain click selects it)
+        e.ignore()
 
     def mouseMoveEvent(self, e):
         self.pointer = e.position()
@@ -307,7 +277,7 @@ class LineChart(QWidget):
         self.pan, self.moved = None, False
         self._cursor()
         if dragged:
-            e.accept()  # a drag is not a click on the card
+            e.accept()
         else:
             e.ignore()
 
@@ -315,7 +285,6 @@ class LineChart(QWidget):
         self.pointer = None
         self.update()
 
-    # ---------------------------------------------------------- paint
     def paintEvent(self, e):
         p = _aa(self)
         p.translate(0, 6)
@@ -324,7 +293,7 @@ class LineChart(QWidget):
         p.setFont(font(11))
         p.setPen(qc(T.mute))
         y_labels = self.y_labels
-        if self.y_range is not None:  # bigger chart, more ticks
+        if self.y_range is not None:
             lo, hi, fmt = self.y_range
             n = max(2, round(H / self.Y_STEP))
             y_labels = [fmt(hi - i * (hi - lo) / n) for i in range(n + 1)]
@@ -338,7 +307,7 @@ class LineChart(QWidget):
         p.setPen(QPen(qc(T.mute), 1))
         p.drawLine(QPointF(left, H - 0.5), QPointF(left + pw, H - 0.5))
         p.save()
-        p.setClipRect(QRectF(left, -6, pw, H + 12))  # zoomed in, lines run past the plot's sides
+        p.setClipRect(QRectF(left, -6, pw, H + 12))
         for vals, color, width, *rest in reversed(self.series):
             if len(vals) < 2:
                 continue
@@ -350,12 +319,12 @@ class LineChart(QWidget):
             p.setPen(pen)
             p.drawPolyline(pts)
         p.restore()
-        p.setPen(qc(T.mute))  # axis text, not the last series' colour
+        p.setPen(qc(T.mute))
         labels = self.x_labels
-        if self.x_value is not None:  # wider chart, more ticks; zoomed, they follow the view
+        if self.x_value is not None:
             v0, v1 = self.view
             n = max(2, round(pw / self.X_STEP))
-            while True:  # a narrow chart drops ticks that would run into each other, down to its two ends
+            while True:
                 labels = [_num(self.x_value(v0 + j * (v1 - v0) / n)) for j in range(n + 1)]
                 labels[-1] += f" {self.x_name}"
                 if n == 1 or sum(map(p.fontMetrics().horizontalAdvance, labels)) + 12 * n <= pw:
@@ -373,23 +342,21 @@ class LineChart(QWidget):
         self._paint_readout(p, H)
 
     def _paint_readout(self, p, H):
-        """Hairline at the data x nearest the pointer, a dot on each series there, and the values beside the cursor."""
         if self.pointer is None or not self.hover_rows:
             return
         fx = self._fx(self.pointer.x())
         if not self.view[0] <= fx <= self.view[1] or not 0 <= self.pointer.y() - 6 <= H:
             return
         near = lambda r, f: min(range(len(r["x01"])), key=lambda i: abs(r["x01"][i] - f))
-        snap = min((r["x01"][near(r, fx)] for r in self.hover_rows), key=lambda x: abs(x - fx))  # crosshair finds the X
+        snap = min((r["x01"][near(r, fx)] for r in self.hover_rows), key=lambda x: abs(x - fx))
         hits = [(r, near(r, snap)) for r in self.hover_rows]
         x = self._sx(snap)
         p.setPen(QPen(qc(T.mute), 1))
         p.drawLine(QPointF(x, 0), QPointF(x, H))
         for r, i in hits:
-            p.setPen(QPen(qc(T.surf), 2))  # ring so the dot stands off the line
+            p.setPen(QPen(qc(T.surf), 2))
             p.setBrush(qc(col(r["color"])))
             p.drawEllipse(QPointF(self._sx(r["x01"][i]), H - min(max(r["y01"][i], -0.1), 1) * H), 4, 4)
-        # tooltip: x on top, then per series the value (strong) and its name; a line key when there are several
         head = f"{self.x_name} {_num(hits[0][0]['xs'][hits[0][1]])}".strip()
         rows = []
         for r, i in hits:
@@ -402,14 +369,14 @@ class LineChart(QWidget):
         vw = max(p.fontMetrics().horizontalAdvance(v) for _, v, _ in rows)
         p.setFont(small)
         fm = p.fontMetrics()
-        room = self.width() - 24 - key - vw - 8  # names shorten with "…" so the box never outgrows the chart
+        room = self.width() - 24 - key - vw - 8
         names = [fm.elidedText(n, Qt.TextElideMode.ElideMiddle, max(room, 40)) for _, _, n in rows]
         nw = max(fm.horizontalAdvance(n) for n in names)
         w = min(12 + max(key + vw + (8 + nw if nw else 0), fm.horizontalAdvance(head)) + 12, self.width())
         h = 8 + 16 + len(rows) * 18 + 6
         bx = self.pointer.x() + 14
         if bx + w > self.width():
-            bx = self.pointer.x() - 14 - w  # flip to the cursor's left near the right edge
+            bx = self.pointer.x() - 14 - w
         bx = min(max(bx, 0), self.width() - w)
         by = min(max(self.pointer.y() - 6 + 14, -6), self.height() - 6 - h)
         p.setPen(Qt.PenStyle.NoPen)
@@ -435,7 +402,6 @@ class LineChart(QWidget):
 
 
 def _num(v):
-    """A readout number: whole numbers and anything past 10,000 in full with separators, others to four digits."""
     if isinstance(v, float) and v.is_integer():
         v = int(v)
     if isinstance(v, int) or abs(v) >= 1e4:
@@ -444,21 +410,14 @@ def _num(v):
 
 
 class ZoomView:
-    """Zoom and pan of one image, shared by every pane in ``panes`` (each Data pane has its own).
-
-    ``zoom`` is relative to fitting the pane (1 = fit); ``cx, cy`` is the image point (0..1) at the pane centre,
-    so the view survives pane resizes.
-    """
-
-    MAX = 40.0  # times the fitted size
-    MIN_SCALE = 0.1  # zooming out stops at 10% of the image's own pixel size (or at fit, if that is already smaller)
+    MAX = 40.0
+    MIN_SCALE = 0.1
 
     def __init__(self):
         self.zoom, self.cx, self.cy = 1.0, 0.5, 0.5
         self.panes = []
 
     def reset(self):
-        """Back to how the image was first shown: fitted to the pane and centred."""
         self.zoom, self.cx, self.cy = 1.0, 0.5, 0.5
         self.update()
 
@@ -468,18 +427,10 @@ class ZoomView:
 
 
 class Stage(QWidget):
-    """Dark image/video viewer pane with Raw / Predict overlays.
-
-    Draws the file from ``path`` when it exists, otherwise a striped placeholder. On an image the
-    wheel zooms around the cursor, Shift+wheel pans sideways, dragging pans and a double-click fits.
-    ``overlay`` (a ``labels.Overlay``) draws boxes / masks / keypoints over the image, following zoom and pan.
-    """
-
-    PAN_STEP = 60  # px per wheel notch with Shift
-    KEEP = 48  # px of the image that stay in the pane however far it is dragged
+    PAN_STEP = 60
+    KEEP = 48
 
     def __init__(self, name, meta, kind, label=None, pred=None, video=False, path=None, radius=4, view=None, overlay=None):
-        """``radius``: corner radius of the parent area this pane fills (part of), so panes follow its rounding."""
         super().__init__()
         self.name, self.meta, self.kind, self.label, self.pred = name, meta, kind, label, pred
         self.overlay = overlay
@@ -492,22 +443,20 @@ class Stage(QWidget):
         if not self.pix.isNull():
             self.setCursor(Qt.CursorShape.OpenHandCursor)
 
-    # ---------------------------------------------------------- zoom / pan
     def _scale(self):
         fit = min(self.width() / self.pix.width(), self.height() / self.pix.height())
-        return max(fit, 1e-6) * self.view.zoom  # a pane not laid out yet has size 0
+        return max(fit, 1e-6) * self.view.zoom
 
     def _min_zoom(self):
         fit = min(self.width() / self.pix.width(), self.height() / self.pix.height())
         return min(1.0, ZoomView.MIN_SCALE / max(fit, 1e-6))
 
     def _clamp(self):
-        """Let the image go anywhere it is dragged, as long as KEEP px of it (all of it, if smaller) stay in the pane."""
         v, s = self.view, self._scale()
         for axis, side, size in (("cx", self.width(), self.pix.width()), ("cy", self.height(), self.pix.height())):
-            w = size * s  # the image's drawn size on this axis
+            w = size * s
             keep = min(self.KEEP, w)
-            lo, hi = (keep - side / 2) / w, (side / 2 + w - keep) / w  # image edge at the far pane edge, minus keep
+            lo, hi = (keep - side / 2) / w, (side / 2 + w - keep) / w
             setattr(v, axis, min(max(getattr(v, axis), lo), hi))
 
     def _image_rect(self):
@@ -526,11 +475,11 @@ class Stage(QWidget):
         if self.pix.isNull():
             return super().wheelEvent(e)
         d = e.angleDelta()
-        if e.modifiers() & Qt.KeyboardModifier.ShiftModifier:  # some platforms turn Shift+wheel into x
+        if e.modifiers() & Qt.KeyboardModifier.ShiftModifier:
             self._pan((d.y() or d.x()) / 120 * self.PAN_STEP, 0)
         elif d.y():
             v, pos, r = self.view, e.position(), self._image_rect()
-            ix, iy = (pos.x() - r.x()) / r.width(), (pos.y() - r.y()) / r.height()  # image point under the cursor
+            ix, iy = (pos.x() - r.x()) / r.width(), (pos.y() - r.y()) / r.height()
             v.zoom = min(max(v.zoom * 1.25 ** (d.y() / 120), self._min_zoom()), ZoomView.MAX)
             s = self._scale()
             v.cx = ix - (pos.x() - self.width() / 2) / (self.pix.width() * s)
@@ -574,8 +523,6 @@ class Stage(QWidget):
         return x + w + 6
 
     def _pred_box(self, p, x, y, rows, bg):
-        """One rounded box, a line per (key, value, tone) as "key : value"; a dot in the tone's colour (None: no dot)
-        marks a value that matches or contradicts the label. Returns the box's bottom."""
         key_font, val_font = font(12), font(12, 600)
         p.setFont(key_font)
         kw = max(p.fontMetrics().horizontalAdvance(k) for k, _, _ in rows)
@@ -609,13 +556,11 @@ class Stage(QWidget):
         p = _aa(self)
         r = QRectF(self.rect())
         clip = QPainterPath()
-        # round by the parent's rect: a pane filling half of it keeps square inner edges
         area = QRectF(self.parentWidget().rect()).translated(-QPointF(self.pos())) if self.parentWidget() else r
         clip.addRoundedRect(area, self.radius, self.radius)
         p.setClipPath(clip)
         if not self.pix.isNull():
             p.fillRect(r, qc(T.stage))
-            # smooth when shrinking; nearest-neighbour when zoomed in so single pixels stay visible
             p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, self._scale() < 2)
             p.drawPixmap(self._image_rect(), self.pix, QRectF(self.pix.rect()))
             if self.overlay:
@@ -626,7 +571,6 @@ class Stage(QWidget):
                 self._chip(p, r.right() - 12 - (p.fontMetrics().horizontalAdvance(text) + 20), 12, text, qc("#0e0f0c", 0.7))
         else:
             p.fillRect(r, qc("#262724"))
-            # 45° stripes, 14px wide
             p.save()
             p.translate(r.center())
             p.rotate(-45)
@@ -656,7 +600,7 @@ class Stage(QWidget):
                 tri.lineTo(c.x() - 5, c.y() + 9)
                 tri.closeSubpath()
                 p.fillPath(tri, qc("#0e0f0c"))
-        chip = qc("#0e0f0c", 0.7)  # readable over the stage (white or black) and over any image
+        chip = qc("#0e0f0c", 0.7)
         if self.kind == "raw":
             self._chip(p, 12, 12, f"label: {self.label}", chip)
         elif self.kind == "inference":
@@ -664,7 +608,6 @@ class Stage(QWidget):
             below = self._pred_box(p, 12, 12, pr["chips"], chip) if pr["chips"] else 12
             if not pr["top"]:
                 return
-            # Top-3 panel
             pw = min(300, r.width() - 24)
             box = QRectF(12, below + 8, pw, 10 + 14 + 6 + 3 * 22 + 4)
             p.setPen(Qt.PenStyle.NoPen)

@@ -1,4 +1,3 @@
-"""Readers for result files: numeric series from csv / jsonl / tfevents, and text previews."""
 import csv
 import itertools
 import json
@@ -7,7 +6,7 @@ import struct
 from collections import defaultdict
 from pathlib import Path
 
-MAX_RECORDS = 20000  # rows read from a csv / jsonl (some au-pro curves are 100 MB)
+MAX_RECORDS = 20000
 MAX_TEXT_BYTES = 256 * 1024
 X_KEYS = ("step", "global_step", "_step", "epoch", "iteration", "iter")
 
@@ -23,7 +22,6 @@ def _num(v):
 
 
 def _series(records):
-    """{key: [values]} for columns that are numeric in most rows and not constant."""
     keys = list(dict.fromkeys(k for r in records[:50] for k in r))
     out = {}
     for k in keys:
@@ -34,7 +32,6 @@ def _series(records):
 
 
 def table(path):
-    """(columns, records, truncated) from a csv / tsv / jsonl file."""
     ext = path.suffix.lower()
     with open(path, newline="") as f:
         if ext == ".jsonl":
@@ -56,14 +53,12 @@ def table(path):
 
 
 def numeric(records):
-    """(x_key, xs, {key: ys}) with the step/epoch column, if any, used as x."""
     series = _series(records)
     x_key = next((k for k in X_KEYS if k in series), None)
     xs = series.pop(x_key) if x_key else list(range(len(records)))
     return x_key, xs, series
 
 
-# ---------------------------------------------------------------- tfevents (no tensorboard dependency)
 def _varint(b, i):
     n = shift = 0
     while True:
@@ -95,22 +90,20 @@ def _fields(b):
 
 
 def _tensor_value(b):
-    """First float of a TensorProto (dtype 1 float / 2 double), or None."""
     dtype = 1
     for f, wt, v in _fields(b):
         if f == 1 and wt == 0:
             dtype = v
-        elif f == 4 and wt == 2 and v:  # tensor_content
+        elif f == 4 and wt == 2 and v:
             return struct.unpack_from("<f" if dtype == 1 else "<d", v)[0] if dtype in (1, 2) else None
-        elif f == 5:  # float_val, packed or not
+        elif f == 5:
             return struct.unpack_from("<f", v)[0]
-        elif f == 6:  # double_val
+        elif f == 6:
             return struct.unpack_from("<d", v)[0]
     return None
 
 
 def tfevents(path):
-    """{tag: (steps, values)} for the scalar summaries in a TensorBoard event file."""
     out = defaultdict(lambda: ([], []))
     data = Path(path).read_bytes()
     i = 0
@@ -139,12 +132,11 @@ def tfevents(path):
                             out[tag][0].append(step)
                             out[tag][1].append(x)
     except (IndexError, struct.error):
-        pass  # truncated tail while a run is still writing
+        pass
     return dict(out)
 
 
 def text(path):
-    """(lines, note): the head of json / short files, the tail of long logs."""
     p = Path(path)
     size = p.stat().st_size
     with open(p, "rb") as f:

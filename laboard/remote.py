@@ -1,29 +1,3 @@
-"""Files and folders on another machine, read over ssh: a value written ``host:path`` (``gcloud:~/laboard/Runs``,
-``gcloud:/data/img/0001.jpg``), in the project file or in the file-path column of a data table (csv or db).
-
-How to log in to ``host``: the ``[host]`` section of the project file itself (as loaded, with Setting's edits).
-A section holds ``key = value`` lines, or a ``command`` with the login command line, and its type is its ``type``
-key, else its name:
-
-* ``[gcloud]`` instance_name, zone: ``gcloud compute ssh <instance_name> --zone <zone>``;
-* ``[az]`` vm_name, resource-group: ``az ssh vm --name <vm_name> --resource-group <resource-group>``;
-* ``[aws]`` instance-id, instance-os-user, ssh-public-key, availability-zone: the public key is sent with
-  ``aws ec2-instance-connect send-ssh-public-key``, then ``ssh -i <its private key> <instance-os-user>@<public ip>``;
-* ``[ssh]`` key_name, user_name, ip: ``ssh -i ~/.ssh/<key_name> <user_name>@<ip>``;
-* ``command = "<command line>"`` (``ssh -i ~/.ssh/key user@1.2.3.4``, ``gcloud compute ssh my-vm --zone us-west1-b``,
-  …) is the login itself, in a section of any name.
-
-Any other key is passed on as ``--key value`` (``true``: the bare flag), and ``_`` / ``-`` in key names are the same.
-
-A ``gcloud compute ssh`` login is replaced by the plain ssh it runs (``--dry-run``), and the calls to one host share
-one connection (ControlMaster), so a call after the first takes milliseconds instead of gcloud's seconds.
-
-* ``copy``: a remote file or folder into a temp folder, read like a local one (Path folders, csv files);
-* ``stat``: the sizes and times of remote data files, without copying them;
-* ``fetch`` / ``local``: local copies of remote data files, made when a page shows them and kept until Laboard exits.
-
-Nothing on the remote side is changed. ``use`` (on every project load) gives the project the hosts are read from.
-"""
 import atexit
 import hashlib
 import posixpath
@@ -36,19 +10,19 @@ import tempfile
 from collections import defaultdict
 from pathlib import Path
 
-REMOTE = re.compile(r"^([\w.@-]{2,}):(?!//)(.+)$")  # host:path; a single letter would be a Windows drive
+REMOTE = re.compile(r"^([\w.@-]{2,}):(?!//)(.+)$")
 TIMEOUT = 180
-TAR = "tar cf - --dereference --hard-dereference"  # file contents only: a link entry can't be unpacked from a stream
+TAR = "tar cf - --dereference --hard-dereference"
 
-WHERE = "the project file"  # where login sections are, as error messages name it
+WHERE = "the project file"
 
 _project = dict(base=Path.cwd(), cfg={})
-_logins = {}  # host → (kind "ssh" | "gcloud" | "cli", argv, the gcloud login an ssh came from, prepare argv)
-_logged_with = {}  # host → the section its login was made from: an edited section makes a new one
-_copies = {}  # (value, options) → local copy, this load
-_origin = {}  # str(local copy) → the host:path it was copied from
-_stats = {}  # remote file → (size, mtime), this load
-_absent = set()  # remote files a fetch didn't bring, this load
+_logins = {}
+_logged_with = {}
+_copies = {}
+_origin = {}
+_stats = {}
+_absent = set()
 _root = None
 
 
@@ -62,7 +36,7 @@ def _cache():
 @atexit.register
 def _cleanup():
     for kind, argv, _, _ in _logins.values():
-        if kind == "ssh":  # close the shared connection
+        if kind == "ssh":
             try:
                 subprocess.run(argv[:1] + ["-O", "exit"] + argv[1:], capture_output=True, timeout=5)
             except (OSError, subprocess.SubprocessError):
@@ -72,37 +46,30 @@ def _cleanup():
 
 
 def use(base, cfg):
-    """The project being loaded: ``base``, its file's folder; ``cfg``, its parsed toml (names in lower case), whose
-    ``[host]`` sections say how to log in."""
     if base != _project["base"]:
         _logins.clear()
     _project.update(base=base, cfg=cfg)
-    for host in [h for h in _logins if _section(h) != _logged_with.get(h)]:  # its section changed (Setting edit)
+    for host in [h for h in _logins if _section(h) != _logged_with.get(h)]:
         del _logins[host]
     _copies.clear()
     _stats.clear()
     _absent.clear()
 
 
-# ---------------------------------------------------------------- remote paths
 def split(value):
-    """(host, path) of a ``host:path`` value, else None."""
     m = REMOTE.match(value) if isinstance(value, str) else None
     return m.groups() if m else None
 
 
 def join(folder, rel):
-    """``rel`` under the remote folder ``folder``."""
     return f"{str(folder).rstrip('/')}/{rel}"
 
 
 def origin(p):
-    """The host:path that the local copy ``p`` was made from, else None."""
     return _origin.get(str(p))
 
 
 def parent(p):
-    """The remote folder (host:path) of the file that the local copy ``p`` was made from, else None."""
     o = origin(p)
     if not o:
         return None
@@ -111,24 +78,19 @@ def parent(p):
 
 
 def _where(path):
-    """``path`` as the remote shell gets it: absolute, or under the login folder (home) for ``~/…`` and relative ones."""
     if path == "~" or path == "~/":
         return "."
     return path[2:] if path.startswith("~/") else path
 
 
 def _local(p):
-    """Where the local copy of the remote file ``p`` goes."""
     host, path = split(p)
     w = _where(path)
     parts = [q for q in w.split("/") if q not in ("", ".", "..")]
     return _cache().joinpath("files", host, "root" if w.startswith("/") else "home", *parts)
 
 
-# ---------------------------------------------------------------- logging in
 def _section(host):
-    """(options, command argv) of the project file's ``[host]`` section, or None; keys in lower case with "_" as
-    "-", ``command`` split into the argv."""
     sec = _project["cfg"].get(host.lower())
     if not isinstance(sec, dict):
         return None
@@ -139,7 +101,6 @@ def _section(host):
 
 
 def _flags(options, skip=()):
-    """``--key value`` of each option not in ``skip``; true is the bare flag, false is left out."""
     out = []
     for k, v in options.items():
         if k not in skip and v is not False:
@@ -165,7 +126,6 @@ def _az_login(name, o):
 
 
 def _aws_login(name, o):
-    """ssh with the instance's key, after the public key is sent (valid 60 s: sent again when a login fails)."""
     vm, user, pub = _need(name, o, "instance-id", "instance-os-user", "ssh-public-key")
     pub = pub.removeprefix("file://")
     key = str(o.get("private-key") or pub.removesuffix(".pub"))
@@ -189,19 +149,16 @@ def _aws_login(name, o):
 
 
 def _ssh_login(name, o):
-    """``ssh -i ~/.ssh/<key_name> <user_name>@<ip>``; a key_name with a "/" is the key file's own path."""
     (ip,) = _need(name, o, "ip")
     key = str(o.get("key-name") or "")
     key = ["-i", str(Path(key).expanduser() if "/" in key else Path.home() / ".ssh" / key)] if key else []
     return "ssh", ["ssh", *key, f"{o['user-name']}@{ip}" if o.get("user-name") else str(ip)], None
 
 
-LOGINS = dict(gcloud=_gcloud_login, az=_az_login, aws=_aws_login, ssh=_ssh_login)  # by a section's type
+LOGINS = dict(gcloud=_gcloud_login, az=_az_login, aws=_aws_login, ssh=_ssh_login)
 
 
 def _login(host):
-    """(kind, argv, prepare argv or None) that logs in to ``host``, from its project file section (see the module
-    doc)."""
     section = _section(host)
     if section is None:
         raise OSError(f"{WHERE} has no [{host}] section")
@@ -216,7 +173,6 @@ def _login(host):
 
 
 def _prepare(host, argv):
-    """Run a login's preparing command (e.g. sending the aws public key)."""
     try:
         r = subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True, timeout=60)
     except (OSError, subprocess.SubprocessError) as e:
@@ -226,13 +182,11 @@ def _prepare(host, argv):
 
 
 def _gcloud(argv, *extra):
-    """A gcloud login with ``extra`` flags, which go before the args it hands to ssh (after "--")."""
     cut = argv.index("--") if "--" in argv else len(argv)
     return argv[:cut] + ["--quiet", *extra] + argv[cut:]
 
 
 def _shared(argv):
-    """A plain ssh that never prompts and shares one connection per host."""
     return argv[:1] + ["-o", "BatchMode=yes", "-o", "ControlMaster=auto", "-o", f"ControlPath={_cache()}/%C",
                        "-o", "ControlPersist=600"] + argv[1:]
 
@@ -254,7 +208,7 @@ def _connection(host):
                 dry = []
             if dry[-2:] == ["--", "true"] and Path(dry[0]).name == "ssh":
                 _logins[host] = ("ssh", _shared(dry[:-2]), argv, None)
-            else:  # no dry run: every call goes through gcloud
+            else:
                 _logins[host] = ("gcloud", argv, None, None)
     return _logins[host]
 
@@ -265,8 +219,6 @@ def _last(err):
 
 
 def _call(host, cmd, data=None, out=None):
-    """Run the shell command ``cmd`` on ``host`` (``data`` on its stdin). Returns the CompletedProcess, its stdout
-    written to the file ``out`` when given. OSError when the host can't be reached."""
     prepared = False
     while True:
         kind, argv, came_from, prepare = _connection(host)
@@ -281,10 +233,10 @@ def _call(host, cmd, data=None, out=None):
             raise OSError(f"no answer from {host} in {TIMEOUT}s") from None
         except OSError as e:
             raise OSError(f"can't run {full[0]} ({e.strerror})") from None
-        if r.returncode == 255 and came_from:  # the plain ssh gcloud printed doesn't log in: use gcloud itself
+        if r.returncode == 255 and came_from:
             _logins[host] = ("gcloud", came_from, None, None)
             continue
-        if r.returncode == 255 and prepare and not prepared:  # e.g. the aws public key expired: send it again
+        if r.returncode == 255 and prepare and not prepared:
             _prepare(host, prepare)
             prepared = True
             continue
@@ -293,9 +245,7 @@ def _call(host, cmd, data=None, out=None):
         return r
 
 
-# ---------------------------------------------------------------- reading
 def _find(exts, depth, max_size):
-    """find of the files under the current folder (hidden folders skipped), as a shell command."""
     find = ["find", ".", "-mindepth", "1"] + (["-maxdepth", str(depth)] if depth else []) + \
            ["-type", "f", "-not", "-path", "'*/.*'"] + (["-size", f"-{max_size}c"] if max_size else [])
     if exts:
@@ -304,12 +254,6 @@ def _find(exts, depth, max_size):
 
 
 def copy(value, exts=None, depth=None, max_size=None):
-    """Copy the remote file or folder ``value`` (``host:path``) into a temp folder, named like it, and return the copy.
-
-    Of a folder only files ending in one of ``exts`` (any when None), at most ``depth`` levels down and smaller than
-    ``max_size`` bytes are copied. A copy is made again on every load (``use``). Raises OSError when the host can't
-    be reached or has no such file or folder.
-    """
     key = (value, tuple(exts) if exts else None, depth, max_size)
     if key in _copies:
         return _copies[key]
@@ -335,7 +279,7 @@ def copy(value, exts=None, depth=None, max_size=None):
         try:
             with tarfile.open(fileobj=fh, mode="r|") as tar:
                 tar.extractall(into, filter="data")
-        except tarfile.ReadError:  # nothing in it
+        except tarfile.ReadError:
             pass
     _copies[key] = dest / name
     _origin[str(dest / name)] = value
@@ -343,8 +287,6 @@ def copy(value, exts=None, depth=None, max_size=None):
 
 
 def stat(paths):
-    """{remote file: (size, mtime)} of the remote ``paths`` that exist (others are skipped): one ssh call per
-    host, and none for files an earlier call of this load saw. Raises OSError like ``copy``."""
     out, todo = {}, defaultdict(dict)
     for p in paths:
         s = split(p)
@@ -365,8 +307,6 @@ def stat(paths):
 
 
 def fetch(paths):
-    """Copy the remote files among ``paths`` that have no local copy yet: one ssh call per host. Files that can't
-    be had (missing, host down) are skipped; their ``local`` path doesn't exist."""
     todo = defaultdict(list)
     for p in dict.fromkeys(paths):
         s = split(p)
@@ -389,7 +329,7 @@ def fetch(paths):
                         for member in tar:
                             try:
                                 tar.extract(member, dest, filter="data")
-                            except (OSError, tarfile.TarError):  # one bad entry (e.g. an odd name) skips only itself
+                            except (OSError, tarfile.TarError):
                                 pass
             except (OSError, tarfile.TarError):
                 pass
@@ -397,7 +337,6 @@ def fetch(paths):
 
 
 def local(path):
-    """A local file to read ``path`` from: ``path`` itself, or the copy of a remote file (fetched now if needed)."""
     if not split(path):
         return path
     fetch([path])

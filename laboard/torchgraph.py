@@ -1,13 +1,3 @@
-"""A drawable layer graph for pickled PyTorch checkpoints, which store weights but not how layers connect.
-
-The model's tensors (the largest state dict in a checkpoint; optimizer, scheduler and rng entries
-are skipped) are grouped into modules, kept in registration order and typed from their weights
-(5-D weight → Conv3d, running_mean → BatchNorm, ...). The modules are chained into an ONNX file for
-netron to draw, as the matching standard ONNX op (Conv, Gemm, BatchNormalization, ...) so netron names
-and colours their inputs; the PyTorch type goes in the node description. Weights carry shapes only. Registration order
-usually follows the forward pass, but branches and skip connections can't be known without the
-model's code. TorchScript files do store the graph, so netron reads those directly.
-"""
 import hashlib
 import tempfile
 import zipfile
@@ -21,21 +11,19 @@ PARAM_NAMES = ("weight", "bias", "running_mean", "running_var", "num_batches_tra
 
 
 def is_pickle(path):
-    """A zip checkpoint written by torch.save (not torch.jit.save)."""
     if not zipfile.is_zipfile(path):
         return False
-    names = zipfile.ZipFile(path).namelist()
+    with zipfile.ZipFile(path) as z:
+        names = z.namelist()
     return any(n.endswith("data.pkl") for n in names) and not any("/code/" in n or n.endswith("constants.pkl") for n in names)
 
 
-# guessed PyTorch type → (ONNX op, its input order); other types stay custom ops in the laboard.inferred domain
 ONNX_OPS = {"Conv1d": ("Conv", ("weight", "bias")), "Conv2d": ("Conv", ("weight", "bias")), "Conv3d": ("Conv", ("weight", "bias")),
             "Linear": ("Gemm", ("weight", "bias")), "BatchNorm": ("BatchNormalization", ("weight", "bias", "running_mean", "running_var")),
             "Norm": ("LayerNormalization", ("weight", "bias")), "Embedding": ("Gather", ("weight",))}
 
 
 def _kind(module, params):
-    """(PyTorch type, attributes) guessed from a module's tensors."""
     w = params.get("weight", params.get("kernel"))
     if "running_mean" in params:
         return "BatchNorm", {"num_features": params["running_mean"].shape[0] if params["running_mean"].shape else 0}
@@ -56,7 +44,6 @@ def _kind(module, params):
 
 
 def build(path):
-    """Path of an ONNX file drawing ``path``'s modules in registration order (cached), or None."""
     import onnx
     from onnx import TensorProto, helper
 
@@ -85,19 +72,19 @@ def build(path):
         kind, attrs = _kind(mod, params)
         op, order = ONNX_OPS.get(kind, (kind, ()))
         if op == "Gemm":
-            attrs = {"transB": 1}  # torch Linear weight is (out, in)
+            attrs = {"transB": 1}
         elif op == "Conv":
             attrs = {"kernel_shape": attrs["kernel_shape"]}
         elif op != kind:
             attrs = {}
         if op in ("BatchNormalization",) and not all(k in params for k in order):
-            op, order = kind, ()  # incomplete batch norm: keep it a custom op
+            op, order = kind, ()
         names = {}
         for param, t in params.items():
             init = TensorProto(name=f"{mod}.{param}", data_type=dtypes.get(t.dtype, TensorProto.FLOAT), dims=t.shape)
-            inits.append(init)  # shape only: netron shows it, there is no data to load
+            inits.append(init)
             names[param] = init.name
-        if order:  # schema order; tensors the op has no slot for (num_batches_tracked, ...) are dropped
+        if order:
             args = [names[k] for k in order if k in names]
             ins = [args[0], prev] if op == "Gather" else [prev, *args]
         else:

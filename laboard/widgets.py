@@ -1,4 +1,3 @@
-"""Small building blocks that mirror the prototype's inline-styled elements."""
 import itertools
 import re
 
@@ -16,11 +15,9 @@ _ids = itertools.count()
 
 
 def col(c):
-    """Resolve a palette key ('ink', 'c2', ...) or pass a literal colour through."""
     return T[c] if c in T else c
 
 
-# ------------------------------------------------------------------ layouts
 def _fill(layout, items):
     for it in items:
         if it is None:
@@ -67,15 +64,13 @@ def clear_layout(layout):
     while layout.count():
         item = layout.takeAt(0)
         if item.widget():
-            item.widget().hide()  # deleted only later: don't let it show meanwhile
+            item.widget().hide()
             item.widget().deleteLater()
         elif item.layout():
             clear_layout(item.layout())
 
 
-# ------------------------------------------------------------------ boxes
 class Box(QFrame):
-    """A rounded, filled container (the prototype's styled <div>)."""
     clicked = pyqtSignal()
 
     def __init__(self, bg="surf", radius=16, border=None, hover=None, layout=None, on_click=None, parent=None):
@@ -90,7 +85,6 @@ class Box(QFrame):
             self.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def resizeEvent(self, e):
-        # QSS ignores radii above half the height, so resolve "pill" (999) per size
         if self._style["radius"] >= 999:
             self.restyle()
         super().resizeEvent(e)
@@ -111,7 +105,6 @@ class Box(QFrame):
         super().mouseReleaseEvent(e)
 
     def takes_clicks(self):
-        """Whether a click on it does something: then the text in it is not selectable (``Label``)."""
         return self.receivers(self.clicked) > 0
 
 
@@ -119,12 +112,8 @@ def card(*items, pad=(20, 20, 20, 20), spacing=0, radius=16, bg="surf"):
     return Box(bg=bg, radius=radius, layout=vbox(*items, spacing=spacing, margins=pad))
 
 
-# ------------------------------------------------------------------ text
 class Label(QLabel):
-    """Text. It can be selected with the mouse and copied (Ctrl+C, or the right-click menu) unless it sits in
-    something that takes clicks (a button, a list row, a tab: ``Box.takes_clicks``), where a press must reach that.
-    ``select`` True / False decides it outright instead."""
-    _selected = None  # the label last selected in: starting a selection in another clears it
+    _selected = None
     _clipboard_hooked = False
 
     def __init__(self, text="", size=14, weight=400, color="ink", mono=False, display=False, spacing=0.0,
@@ -157,13 +146,13 @@ class Label(QLabel):
     def _selectable(self, on):
         flags = Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.TextSelectableByKeyboard
         self.setTextInteractionFlags(flags if on else Qt.TextInteractionFlag.NoTextInteraction)
-        self.setFocusPolicy(Qt.FocusPolicy.ClickFocus if on else Qt.FocusPolicy.NoFocus)  # focused, Ctrl+C copies
+        self.setFocusPolicy(Qt.FocusPolicy.ClickFocus if on else Qt.FocusPolicy.NoFocus)
         if on and not Label._clipboard_hooked:
             Label._clipboard_hooked = True
             QApplication.clipboard().dataChanged.connect(_unbreak_clipboard)
 
     def showEvent(self, e):
-        if self._select is None:  # decided where it is shown: the parents are known by now
+        if self._select is None:
             w, clicks = self.parentWidget(), False
             while w is not None and not clicks:
                 clicks = isinstance(w, Box) and w.takes_clicks()
@@ -174,12 +163,12 @@ class Label(QLabel):
     def mousePressEvent(self, e):
         last = Label._selected
         if last is not None and last is not self and not sip.isdeleted(last) and last.hasSelectedText():
-            last.setSelection(0, 0)  # one selection at a time, as in a document
+            last.setSelection(0, 0)
         Label._selected = self
         super().mousePressEvent(e)
 
     def paintEvent(self, e):
-        if not self._elide or self.hasSelectedText():  # selected: the whole text, as the selection measures it
+        if not self._elide or self.hasSelectedText():
             return super().paintEvent(e)
         p = QPainter(self)
         p.setFont(self.font())
@@ -189,8 +178,6 @@ class Label(QLabel):
 
 
 def _unbreak_clipboard():
-    """Copied text loses the zero-width spaces that let long values wrap anywhere (``breakable``): pasted, they
-    would make a path or value that only looks the same."""
     cb = QApplication.clipboard()
     text = cb.text()
     if "\u200b" in text:
@@ -202,38 +189,27 @@ def mono_span(text, color="ink", size=None):
     return f'<span style="font-family:\'{theme.MONO_FAMILY}\';color:{col(color)};{s}">{text}</span>'
 
 
-def h(text, size=16, weight=600, lh=24, **kw):
-    return Label(text, size, weight, lh=lh, **kw)
-
-
 def caption(text, color="mute", size=12, **kw):
     return Label(text, size, 400, color, **kw)
 
 
 def breakable(text):
-    """``text`` with zero-width spaces after path and identifier separators, so a wrapping Label can break long
-    paths and keys there instead of only at spaces. Commas and points inside numbers (7,011 / 332.2) stay whole."""
     return re.sub(r"([/_=:-]|[.,](?!\d))", "\\1\u200b", text)
 
 
 def elided(text, *args, **kw):
-    """A Label at its full width when there's room that shortens with "…" when squeezed (a plain elide Label
-    instead shares spare width with stretches)."""
     lab = Label(text, *args, elide=True, **kw)
     lab.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
     return lab
 
 
 class Tip(QWidget):
-    """Hover bubble: a rounded ink rectangle with Wise-green text (DESIGN-wise's ink / green pairing, as on
-    card-feature-dark). One shared window; ``set_tip`` attaches it to a widget instead of a plain tooltip."""
-
-    WIDTH, RADIUS = 360, 12  # text width; rounded.md
+    WIDTH, RADIUS = 360, 12
     _shared = None
 
     def __init__(self):
         super().__init__(None, Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)  # only the rounded rectangle is drawn
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.title = Label("", 13, 600, theme.WISE_GREEN, mono=True)
         self.body = Label("", 13, 400, theme.WISE_GREEN, wrap=True)
@@ -244,14 +220,12 @@ class Tip(QWidget):
     def paintEvent(self, e):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        # on the dark theme the page is ink too: a hairline keeps the bubble's edge visible
         p.setPen(QPen(qc(T.grid), 1) if theme.current == "dark" else Qt.PenStyle.NoPen)
         p.setBrush(qc(theme.INK))
         p.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), self.RADIUS, self.RADIUS)
 
     @classmethod
     def show_at(cls, pos, title, text):
-        """Show below-right of ``pos`` (global), kept on its screen."""
         tip = cls._shared = cls._shared or cls()
         tip.title.setText(title)
         tip.title.setVisible(bool(title))
@@ -270,7 +244,7 @@ class Tip(QWidget):
 
     @classmethod
     def hide_tip(cls, *_):
-        if cls._shared is not None and not sip.isdeleted(cls._shared):  # gone already while the app quits
+        if cls._shared is not None and not sip.isdeleted(cls._shared):
             cls._shared.hide()
 
 
@@ -279,7 +253,7 @@ class _TipFilter(QObject):
         t = e.type()
         if t == QEvent.Type.ToolTip and getattr(obj, "_tip", None):
             Tip.show_at(e.globalPos(), *obj._tip)
-            return True  # instead of Qt's plain tooltip
+            return True
         if t in (QEvent.Type.Leave, QEvent.Type.MouseButtonPress, QEvent.Type.Hide):
             Tip.hide_tip()
         return False
@@ -289,17 +263,14 @@ _tip_filter = None
 
 
 def set_tip(widget, title, text):
-    """Show ``title`` / ``text`` in a ``Tip`` bubble while the mouse rests on ``widget``."""
     global _tip_filter
     _tip_filter = _tip_filter or _TipFilter()
     widget._tip = (title, text)
     widget.installEventFilter(_tip_filter)
-    widget.destroyed.connect(Tip.hide_tip)  # a page re-render deletes the widget without a Leave
+    widget.destroyed.connect(Tip.hide_tip)
 
 
 class Pill(QLabel):
-    """Rounded tag: chip, badge, ref label."""
-
     def __init__(self, text, bg="surf2", fg="ink", size=12, weight=600, pad=(4, 10), mono=False, radius=None):
         super().__init__(text)
         self.setFont(font(size, weight, mono=mono))
@@ -344,12 +315,7 @@ class HLine(QWidget):
         self.setStyleSheet(f"background:{col(color)};")
 
 
-# ------------------------------------------------------------------ controls
 class Overlay(QWidget):
-    """A modal layer over the window, below a frameless title bar, dimmed (rgba(14,15,12,.45)): clicks don't reach
-    the page under it and Esc closes it. A child of the window, so it covers whatever page is rendered; the window
-    keeps its ``dialog`` on top (MainWindow.render)."""
-
     def __init__(self, win):
         super().__init__(win)
         self.win = win
@@ -383,12 +349,8 @@ class Overlay(QWidget):
 
 
 class Button(QPushButton):
-    """Wise DS Button: secondary (soft fill), primary (green) or tertiary (text only), sm / md; and the Load row's
-    outline (ink border), sage (sage, green in dark) and solid (the tab colour) pills."""
-
     @staticmethod
     def _metrics(size, compact=False, pad=None):
-        """(font size, (v pad, h pad), height) for a size; ``pad`` instead of the size's own padding."""
         fs, own = (13, (4, 14)) if compact else (14, (8, 16)) if size == "sm" else (16, (12, 24))
         pad = pad or own
         return fs, pad, pad[0] * 2 + (20 if fs <= 14 else 24)
@@ -422,14 +384,12 @@ class Button(QPushButton):
 
 
 class Segmented(Box):
-    """Pill-shaped segmented control used for tabs, filters and toggles."""
-
     def __init__(self, options, current, on_select, size=12, pad=(5, 12), outer=3, gap=2, on=("surf", "ink"),
                  off=("transparent", "body"), expand=False, dots=None):
         lay = hbox(spacing=gap, margins=(outer,) * 4)
         super().__init__(bg="surf2", radius=999, layout=lay)
         self.setSizePolicy(QSizePolicy.Policy.Preferred if expand else QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self.on, self.off, self.items = on, off, {}  # key -> (segment box, its label)
+        self.on, self.off, self.items = on, off, {}
         for key, label in options:
             sel = key == current
             bg, fg = on if sel else off
@@ -444,7 +404,6 @@ class Segmented(Box):
             self.items[key] = (item, lbl)
 
     def select(self, current):
-        """Show ``current`` as the chosen segment, in place (for a caller that doesn't re-render on select)."""
         for key, (item, lbl) in self.items.items():
             bg, fg = self.on if key == current else self.off
             item.restyle(bg=bg)
@@ -465,8 +424,6 @@ class LineEdit(QLineEdit):
 
 
 class Combo(QComboBox):
-    """Drop-down in the LineEdit style; calls ``on_change(key)`` with the chosen option's key."""
-
     def __init__(self, options, current, on_change, size=13):
         super().__init__()
         self.setFont(font(size))
@@ -483,9 +440,6 @@ class Combo(QComboBox):
 
 
 class MenuButton(Box):
-    """A button in the drop-down field style: ``text`` and a chevron in a bordered field. A click calls ``on_open()``,
-    which opens a ``Popover`` under it; ``opened(True / False)`` makes it look pressed (chevron up) meanwhile."""
-
     def __init__(self, text, on_open, min_width=120, pad=(16, 10, 14, 10), gap=12):
         super().__init__(bg="surf", radius=12, border=f"1px solid {T.ink}", hover="surf2")
         self.chev = Chevron("ink", 90)
@@ -496,13 +450,11 @@ class MenuButton(Box):
         self.clicked.connect(on_open)
 
     def opened(self, on):
-        """Look pressed (chevron up) while its popover is open."""
         self.restyle(bg="surf2" if on else "surf")
         self.chev.rotation = -90 if on else 90
         self.chev.update()
 
     def pop(self, content, **kw):
-        """Open ``content`` in a ``Popover`` under its right edge, looking pressed until it closes."""
         pop = Popover(self, content, right=True, on_close=lambda: sip.isdeleted(self) or self.opened(False), **kw)
         self.opened(True)
         pop.show()
@@ -510,9 +462,6 @@ class MenuButton(Box):
 
 
 class Select(MenuButton):
-    """Drop-down in the prototype's style: the value and a chevron in a field; a click opens the options in a
-    list under its right edge, the current one ticked. Calls ``on_change(key)`` with the chosen option's key."""
-
     def __init__(self, options, current, on_change, min_width=120):
         super().__init__(dict(options).get(current, ""), self.open, min_width)
         self.options, self.current, self.on_change = options, current, on_change
@@ -527,11 +476,8 @@ class Select(MenuButton):
 
 
 class Popover(QFrame):
-    """A panel with a shadow 6px under ``anchor``, its left edge under the anchor's (``right``: its right edge);
-    a popup, so a click outside it or Esc closes it. ``content``: the panel's layout. ``on_close`` once it closes."""
-    PAD = (16, 0, 16, 32)  # room around the panel for its shadow
-    _open = set()  # held while open: a parentless popup only referenced from its own items' callbacks would be
-    # deleted by Python's garbage collector, closing it at some later moment
+    PAD = (16, 0, 16, 32)
+    _open = set()
 
     def __init__(self, anchor, content, right=False, min_width=0, on_close=None):
         super().__init__(None, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint | Qt.WindowType.NoDropShadowWindowHint)
@@ -557,13 +503,10 @@ class Popover(QFrame):
         super().hideEvent(e)
 
     def done(self, then=None):
-        """Close, then call ``then``: both once the click being handled is over (a popup closed inside its own
-        click leaves Qt closing the next one as soon as it opens)."""
         QTimer.singleShot(0, lambda: (self.close(), then and then()))
 
 
 def menu_item(text, on_click, on=False, enabled=True, mono=False):
-    """A row of a popover's list: ``on`` (the current choice) shaded and ticked; not ``enabled``, greyed and inert."""
     row = hbox(Label(text, 14, 600 if on else 400, "selfg" if on else "ink" if enabled else "mute", mono=mono, lh=20),
                "stretch", 12, Stroke(TICK, 12, "selfg") if on else None, margins=(12, 8, 12, 8),
                align=Qt.AlignmentFlag.AlignVCenter)
@@ -572,9 +515,6 @@ def menu_item(text, on_click, on=False, enabled=True, mono=False):
 
 
 class ClickTrap(QWidget):
-    """A plain container whose clicks stop at it: inside a card that folds when clicked, its buttons (and the gaps
-    between them) leave the card as it is."""
-
     def mousePressEvent(self, e):
         e.accept()
 
@@ -582,15 +522,12 @@ class ClickTrap(QWidget):
         e.accept()
 
 
-TICK = ((2, 6.2), (4.6, 8.8), (10, 3.4))  # 12px check mark
-ARROW_LEFT, ARROW_RIGHT = ((8.5, 3), (4.5, 7), (8.5, 11)), ((5.5, 3), (9.5, 7), (5.5, 11))  # 14px
-CROSS = ((2, 2), (8, 8), None, (8, 2), (2, 8))  # 10px
+TICK = ((2, 6.2), (4.6, 8.8), (10, 3.4))
+ARROW_LEFT, ARROW_RIGHT = ((8.5, 3), (4.5, 7), (8.5, 11)), ((5.5, 3), (9.5, 7), (5.5, 11))
+CROSS = ((2, 2), (8, 8), None, (8, 2), (2, 8))
 
 
 class Stroke(QWidget):
-    """A ``size`` px icon drawn as rounded lines through ``points`` (an svg path of M / L only; None starts a new
-    line, like M). ``circle`` (cx, cy, r) adds a ring."""
-
     def __init__(self, points, size=12, color="ink", width=1.8, circle=None):
         super().__init__()
         self.points, self.color, self.width_, self.circle = points, color, width, circle
@@ -617,9 +554,6 @@ class Stroke(QWidget):
 
 
 class SearchField(Box):
-    """A search box: magnifier, the text, and while there is text a match count (``set_count``) and a clear
-    button. ``on_change(text)`` on every edit."""
-
     def __init__(self, placeholder, text, on_change, width=300):
         super().__init__(bg="surf", radius=12, border=f"1px solid {T.ink}")
         self.input = QLineEdit(text)
@@ -640,10 +574,9 @@ class SearchField(Box):
         self.set_count(None)
 
     def sizeHint(self):
-        return self.minimumSize()  # its fixed size: a layout placing it by its hint (Flow) leaves it room for all of it
+        return self.minimumSize()
 
     def set_count(self, n):
-        """``n`` matches next to the text; None hides the count and the clear button (no text)."""
         self.count.setVisible(n is not None)
         self.clear.setVisible(n is not None)
         if n is not None:
@@ -651,17 +584,13 @@ class SearchField(Box):
 
 
 class Pager(ClickTrap):
-    """Page controls under a table, after a top rule: rows a page (set in Setting); Previous, the page numbers
-    (first, last, and the ones next to the current, gaps as "…") and Next; and a page box with Go (or Enter).
-    ``on_page(n)`` asks for page ``n`` (from 0, kept in range); the owner shows it and calls ``set_page(n)``."""
-
     def __init__(self, per, total, on_page):
         super().__init__()
         self.per, self.on_page, self.page = per, on_page, 0
         self.set_total(total)
         self.nav = hbox(spacing=4, align=Qt.AlignmentFlag.AlignVCenter)
         self.input = QLineEdit()
-        self.input.setValidator(QRegularExpressionValidator(QRegularExpression(r"\d{0,6}")))  # any page number: Enter / Go keep it in range
+        self.input.setValidator(QRegularExpressionValidator(QRegularExpression(r"\d{0,6}")))
         self.input.setFixedWidth(44)
         self.input.setFont(font(14, 600))
         self.input.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -680,11 +609,9 @@ class Pager(ClickTrap):
                                           align=Qt.AlignmentFlag.AlignVCenter)))
 
     def set_total(self, total):
-        """``total`` rows to page through (``pages`` follows); show a page with ``set_page`` next."""
         self.pages = max(1, -(-total // self.per))
 
     def set_page(self, n):
-        """Show page ``n`` as the current one."""
         self.page = n
         clear_layout(self.nav)
         self.nav.addWidget(self._pill([Stroke(ARROW_LEFT, 14, "ink" if n > 0 else "mute"), 6, "Previous"], n - 1,
@@ -699,8 +626,6 @@ class Pager(ClickTrap):
         self.input.setText(str(n + 1))
 
     def _pill(self, items, to, enabled=True, current=False, pad=(0, 0)):
-        """A 36px round button going to page ``to`` (35px when ``current``, a dark circle); greyed and inert when not
-        ``enabled``."""
         fg = "tabfg" if current else "ink" if enabled else "mute"
         items = [Label(it, 14, 600, fg, lh=20) if isinstance(it, str) else it for it in items]
         live = enabled and not current
@@ -715,7 +640,7 @@ class Pager(ClickTrap):
     def _typed(self):
         n = max(0, min(int(self.input.text() or 1) - 1, self.pages - 1))
         if n == self.page:
-            self.input.setText(str(n + 1))  # back to the page shown
+            self.input.setText(str(n + 1))
         else:
             self.on_page(n)
 
@@ -732,14 +657,10 @@ class Scroll(QScrollArea):
         self.viewport().setStyleSheet("QWidget#vp{background:transparent;}")
         if widget is not None:
             self.setWidget(widget)
-            widget.setAutoFillBackground(False)  # setWidget() turns it on
+            widget.setAutoFillBackground(False)
 
 
 class HScroll(Scroll):
-    """Sideways-only scroll for a block that shouldn't get narrower than its minimum width, such as a table: it is
-    as tall as its content and shows a scrollbar under it when the space is narrower. The wheel scrolls the page
-    around it; Shift+wheel (or a sideways swipe) scrolls the block."""
-
     def __init__(self, widget):
         super().__init__(widget, horizontal=True)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -766,16 +687,16 @@ class HScroll(Scroll):
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
-        self.updateGeometry()  # its height depends on its width
+        self.updateGeometry()
 
     def wheelEvent(self, e):
         if abs(e.angleDelta().y()) <= abs(e.angleDelta().x()):
             return super().wheelEvent(e)
-        if e.modifiers() & Qt.KeyboardModifier.ShiftModifier:  # Shift+wheel: sideways, wherever the bar is
+        if e.modifiers() & Qt.KeyboardModifier.ShiftModifier:
             sb = self.horizontalScrollBar()
             sb.setValue(sb.value() - e.angleDelta().y() // 120 * sb.singleStep() * 3)
             return e.accept()
-        page = self.parentWidget()  # up/down scrolls the page around it, not the table sideways
+        page = self.parentWidget()
         while page is not None and not isinstance(page, QScrollArea):
             page = page.parentWidget()
         if page is not None:
@@ -785,13 +706,7 @@ class HScroll(Scroll):
 
 
 class EdgeResize(QObject):
-    """Lets the user resize ``box`` by dragging its edges and corners (``edges``: any of "l", "r", "t", "b"; the
-    corners between two of them come with them, and ``corners`` such as "lt" add one whose edges are off), with
-    the matching cursor near them. ``on_start()`` runs when a drag begins and ``on_drag(dw, dh)`` gets the change
-    in size since: dragging the left or top edge outwards grows the box too (it stays where its layout puts it).
-    A resize drag is never taken as a click on the box."""
-
-    ZONE = 8  # px along each edge, inside the box's padding
+    ZONE = 8
     CURSORS = {"h": Qt.CursorShape.SizeHorCursor, "v": Qt.CursorShape.SizeVerCursor,
                "\\": Qt.CursorShape.SizeFDiagCursor, "/": Qt.CursorShape.SizeBDiagCursor}
 
@@ -804,7 +719,6 @@ class EdgeResize(QObject):
         box.installEventFilter(self)
 
     def _zone(self, pos):
-        """(horizontal side "l"/"r"/"", vertical side "t"/"b"/"") under ``pos``, or None away from the edges."""
         h = "l" if pos.x() <= self.ZONE else "r" if pos.x() >= self.box.width() - self.ZONE else ""
         v = "t" if pos.y() <= self.ZONE else "b" if pos.y() >= self.box.height() - self.ZONE else ""
         if h and v and h + v in self.corners:
@@ -835,15 +749,13 @@ class EdgeResize(QObject):
             return True
         elif t == QEvent.Type.MouseButtonRelease and self.drag:
             self.drag = None
-            return True  # not a click
+            return True
         elif t == QEvent.Type.Leave and not self.drag:
             self.box.setCursor(self.rest)
         return False
 
 
 class Collapsing(QWidget):
-    """Right-aligned row that never widens its window: items that don't fit are hidden, leftmost first."""
-
     def __init__(self, *items, spacing=12):
         super().__init__()
         self.items = items
@@ -855,10 +767,6 @@ class Collapsing(QWidget):
     @staticmethod
     def need(w):
         return w.minimumSizeHint().expandedTo(w.minimumSize()).width()
-
-    def full_width(self):
-        """The width at which every item shows."""
-        return sum(map(self.need, self.items)) + self.layout().spacing() * (len(self.items) - 1)
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
@@ -880,7 +788,6 @@ def scrollbar_css():
             f"QScrollBar::add-page,QScrollBar::sub-page{{background:transparent;}}")
 
 
-# ------------------------------------------------------------------ composites
 def stat_tile(label, value, color="ink", value_size=24, lh=32):
     return Box(bg="surf2", radius=12, layout=vbox(
         Label(label, 12, 400, "body", lh=16),
@@ -889,7 +796,6 @@ def stat_tile(label, value, color="ink", value_size=24, lh=32):
 
 
 def empty_state(title, text, pad=(32, 28, 32, 28)):
-    """Card shown where a page or section has nothing to display yet."""
     return card(Label(title, 18, 600, lh=26), 6, Label(text, 14, 400, "body", wrap=True), "stretch", pad=pad)
 
 
@@ -905,36 +811,20 @@ def kv_row(k, v, mono=False, border=True, pad=6, v_color="ink", size=13):
 
 
 class Flow(QLayout):
-    """Blocks placed left to right that wrap onto the next row when the width runs out, like inline blocks.
-    ``add`` gives each block the width it needs and a stretch. With ``per_row`` the rows are a grid of that many
-    equal columns (fewer when they don't fit), except blocks given their own width (``set_width``): those keep it,
-    the others in their row share what is left, and a block that would get less than its width wraps to the next
-    row; a row of blocks that all have their own width takes as many as fit, past ``per_row``. Otherwise each row shares its spare width by stretch. A row is as tall as its tallest block; ``fill``
-    stretches the others to match, else they keep their own height. ``vspacing`` is the gap between rows
-    (default: ``spacing``)."""
-
     def __init__(self, spacing=12, per_row=None, fill=True, vspacing=None):
         super().__init__()
         self.setContentsMargins(0, 0, 0, 0)
-        self.blocks = []  # [QLayoutItem, min width, stretch]
-        self.own = {}  # widget -> width the user gave it (grid mode)
-        self.filling = set()  # widgets as tall as their row even without ``fill``
-        self.steady = set()  # grid mode: widgets that keep a column's width while their neighbours take their own
+        self.blocks = []
+        self.own = {}
+        self.steady = set()
         self.gap, self.per_row, self.fill = spacing, per_row, fill
         self.vgap = spacing if vspacing is None else vspacing
 
-    def set_fill(self, w, on):
-        """Make block ``w`` as tall as its row (on) or its own height (off), whatever ``fill`` says."""
-        (self.filling.add if on else self.filling.discard)(w)
-        self.invalidate()
-
     def set_steady(self, w, on):
-        """Grid mode: block ``w`` keeps a column's width (on) instead of sharing what its row's other blocks leave."""
         (self.steady.add if on else self.steady.discard)(w)
         self.invalidate()
 
     def set_width(self, w, width):
-        """Give block ``w`` its own width in grid mode (None: back to its column)."""
         if width is None:
             self.own.pop(w, None)
         else:
@@ -942,7 +832,6 @@ class Flow(QLayout):
         self.invalidate()
 
     def add(self, w, min_width=None, stretch=1):
-        """Add a block (widget or layout); ``min_width`` defaults to the block's preferred width."""
         if not isinstance(w, QWidget):
             w = wrap(w)
         if min_width is None:
@@ -971,7 +860,6 @@ class Flow(QLayout):
         return self._place(width)
 
     def minimumSize(self):
-        # a block alone on its row may go below its wrap width, down to its own minimum
         return QSize(max((it.minimumSize().width() for it, _, _ in self.blocks), default=0), 0)
 
     def sizeHint(self):
@@ -983,13 +871,8 @@ class Flow(QLayout):
         self._place(rect.width(), rect.x(), rect.y())
 
     def _cols(self, width):
-        """Grid mode: how many of the ``per_row`` columns fit (at least one)."""
         widest = max((m for _, m, _ in self.blocks), default=0)
         return max(1, min(self.per_row, (width + self.gap) // (widest + self.gap)))
-
-    def shared(self, width):
-        """Whether some row holds more than one block when laid out in ``width``."""
-        return any(len(r) > 1 for r in self._rows(width))
 
     def _rows(self, width):
         shown = [b for b in self.blocks if not b[0].isEmpty()]
@@ -1001,7 +884,6 @@ class Flow(QLayout):
         for b in shown:
             w = b[0].widget()
             need = min(self.own.get(w) or (colw if w in self.steady else 0) or b[1], width)
-            # a row holds n columns; blocks that all have their own width share a row as long as they fit
             capped = len(row) >= n if n else False
             if capped and all(self.own.get(x[0].widget()) for x in row + [b]):
                 capped = False
@@ -1013,13 +895,12 @@ class Flow(QLayout):
         return rows + [row] if row else rows
 
     def _place(self, width, x0=None, y0=0):
-        """Lay the blocks out in ``width`` (moving them only when ``x0`` is given); returns the height used."""
         rows = self._rows(width)
         cols = self._cols(width) if self.per_row else 0
         y = y0
         for row in rows:
             own = [self.own.get(it.widget()) for it, _, _ in row] if cols else []
-            if any(own):  # rows packed so the others still get their width (_rows)
+            if any(own):
                 colw = (width - self.gap * (cols - 1)) // cols
                 own = [o or (colw if it.widget() in self.steady else None) for o, (it, _, _) in zip(own, row)]
                 free = own.count(None)
@@ -1039,7 +920,7 @@ class Flow(QLayout):
             if x0 is not None:
                 x = x0
                 for (it, _, _), w, h in zip(row, widths, heights):
-                    it.setGeometry(QRect(x, y, w, tall if self.fill or it.widget() in self.filling else h))
+                    it.setGeometry(QRect(x, y, w, tall if self.fill else h))
                     x += w + self.gap
             y += tall + self.vgap
         return max(y - self.vgap - y0, 0)
@@ -1062,7 +943,6 @@ def link(text, on_click):
     return l
 
 
-# ------------------------------------------------------------------ icons
 class FolderIcon(QWidget):
     def __init__(self, color="ink"):
         super().__init__()
@@ -1089,8 +969,6 @@ class FolderIcon(QWidget):
 
 
 class Chevron(QWidget):
-    """12px right-pointing chevron (M4.5 2.5 L8 6 L4.5 9.5), turned by ``rotation`` degrees: 90 points down."""
-
     def __init__(self, color="ink", rotation=90):
         super().__init__()
         self.color, self.rotation = color, rotation
@@ -1111,22 +989,16 @@ class Chevron(QWidget):
 
 
 class SideHandle(QWidget):
-    """The 12px gutter beside a side panel. Dragging its line resizes ``panel`` live, from hidden up to 70% of the
-    window as it is right now; a panel dragged wider squeezes the centre and then the other panel
-    (``app.drag_side``). Double-click toggles hidden / the width the panel was built with. The width is kept in
-    ``app.side_widths[key]`` as a share of ``app.side_scale()`` and survives re-renders; the panel gets it while the
-    window has room, and gives way when it doesn't (``app.fit_sides``)."""
-
-    SNAP = 40  # narrower than this (px) the panel just hides
-    MAX_SHARE = 0.7  # of the current window width
-    DESIGN_WIDTH = 1920  # the window width the panels' built widths are meant for
+    SNAP = 40
+    MAX_SHARE = 0.7
+    DESIGN_WIDTH = 1920
 
     def __init__(self, panel, app, key, right=False):
         super().__init__()
         self.panel, self.app, self.key, self.right = panel, app, key, right
         self.default = panel.minimumWidth() / self.DESIGN_WIDTH
-        self.closed = False  # a panel with nothing to show (app.show_right): hidden with its gutter
-        self.px = 0  # the panel's width as last applied
+        self.closed = False
+        self.px = 0
         self.hover = self.drag = None
         self.setFixedWidth(12)
         self.setCursor(Qt.CursorShape.SplitHCursor)
@@ -1144,7 +1016,7 @@ class SideHandle(QWidget):
 
     def mousePressEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton:
-            self.drag = (e.globalPosition().x(), {h: h.px for h in self.app.handles})  # every panel's width at the start
+            self.drag = (e.globalPosition().x(), {h: h.px for h in self.app.handles})
             self.update()
 
     def mouseMoveEvent(self, e):
@@ -1178,9 +1050,6 @@ class SideHandle(QWidget):
 
 
 class Check(QWidget):
-    """A check box drawn in the theme's colours. It only shows ``checked``: clicks pass through to the parent,
-    which owns the state (a whole card can be the click target)."""
-
     def __init__(self, checked=False, size=18):
         super().__init__()
         self.checked = checked
@@ -1213,8 +1082,6 @@ class Check(QWidget):
 
 
 class InfoIcon(QWidget):
-    """'i' in a circle (24-unit icon: circle r9.5, stroke 2) drawn at ``size`` px."""
-
     def __init__(self, size=22, color="ink"):
         super().__init__()
         self.color = color
@@ -1233,8 +1100,6 @@ class InfoIcon(QWidget):
 
 
 class Logo(QLabel):
-    """The Laboard logo, ``size`` px square, sharp on HiDPI screens."""
-
     def __init__(self, size):
         super().__init__()
         self.setFixedSize(size, size)
@@ -1242,13 +1107,11 @@ class Logo(QLabel):
 
 
 class SplashLogo(QWidget):
-    """Top-bar brand: the splash mark centred behind a haloed "Laboard" wordmark, 68px tall."""
-
     MARK = 72
 
     def __init__(self, pad=10):
         super().__init__()
-        self.svg = QSvgRenderer(str(theme.LOGO_DIR / "laboard_splash.svg"), self)
+        self.svg = QSvgRenderer(str(theme.LOGO_SVG), self)
         self.text_font = font(26, 900, display=True, spacing=-0.5)
         self.setFixedSize(QFontMetrics(self.text_font).horizontalAdvance("Laboard") + 2 * pad, 68)
 
@@ -1261,6 +1124,5 @@ class SplashLogo(QWidget):
         path = QPainterPath()
         path.addText((self.width() - fm.horizontalAdvance("Laboard")) / 2, (self.height() + fm.capHeight()) / 2,
                      self.text_font, "Laboard")
-        # halo in the surface colour so the wordmark stays legible over the splash
         p.strokePath(path, QPen(qc(T.surf), 2, join=Qt.PenJoinStyle.RoundJoin))
         p.fillPath(path, qc(T.ink))

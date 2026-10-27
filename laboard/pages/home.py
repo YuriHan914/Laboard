@@ -1,4 +1,3 @@
-"""Home: Data / Model / Latest hyperparameter / Result summary cards, plus the git history."""
 from PyQt6.QtCore import QRectF, Qt
 from PyQt6.QtGui import QPainter, QPen
 from PyQt6.QtWidgets import QSizePolicy, QWidget
@@ -18,7 +17,6 @@ def _head(title, on_open, *extra):
 
 
 def _tiles(*tiles):
-    # three per row, fewer (wrapping) when the card is narrow, as Result's charts do
     g = Flow(spacing=10, per_row=3)
     for t in tiles:
         g.add(stat_tile(*t))
@@ -26,7 +24,6 @@ def _tiles(*tiles):
 
 
 def _legend(*items, spacing=16):
-    """Legend entries left to right, wrapping onto the next line when the card is too narrow for them."""
     f = Flow(spacing=spacing, fill=False, vspacing=6)
     for it in items:
         f.add(it, stretch=0)
@@ -100,7 +97,7 @@ def _run_card(app):
         return _missing(app, "Latest hyperparameter", "hyperparameter", "No hyperparameter sets found in Path.Hyperparameter.")
     run_name, commit, rest = D["run_note"]
     note = Label(f"{run_name} · commit {mono_span(commit)} · {rest}", 13, 400, "body", rich=True, wrap=True)
-    g = Flow(spacing=24, per_row=2, vspacing=0)  # one column when the card is narrow
+    g = Flow(spacing=24, per_row=2, vspacing=0)
     for k, v in D["hp"]:
         g.add(vbox(hbox(Label(k, 13, 400, "body"), 12, (Label(v, 13, 400, mono=True, align=Qt.AlignmentFlag.AlignRight, elide=True), 1),
                         margins=(0, 7, 0, 7)), HLine()), 220)
@@ -111,7 +108,7 @@ def _result_card(app):
     if not store.RESULT_FILES:
         return _missing(app, "Result", "result", "No files found in Path.Results.")
     rows = D["accuracy_csv"]
-    if not rows:  # no accuracy.csv among the results
+    if not rows:
         return _summary_card(
             vbox(_head("Result", lambda: app.set(tab="result"), elided(store.RESULT_ROOT, 12, 400, "mute", mono=True)), 8,
                  Label("No accuracy.csv found in the results folder. Open the Result tab to browse csv, logs and images.",
@@ -156,7 +153,6 @@ WHERE_BADGE = {"local": ("Local · not pushed", "#ffc091", "#0e0f0c"), "remote":
 
 
 def where_badge(c):
-    """Pill for a commit that is only local or only on the remote; None when it is on both (or there's no upstream)."""
     if c[7] in WHERE_BADGE and store.PROJECT.get("upstream"):
         text, bg, fg = WHERE_BADGE[c[7]]
         return Pill(text, bg, fg, size=11, pad=(1, 8))
@@ -175,7 +171,7 @@ def _history(app):
 
     last_touch = next((c for c in store.COMMITS if touches(c)), store.COMMITS[0] if store.COMMITS else None)
     lst = vbox()
-    rows = {}  # commit hash -> (row box, its content layout, commit, changed-files panel once built)
+    rows = {}
 
     def details(c):
         files = vbox(spacing=2, margins=(10, 6, 10, 6))
@@ -188,7 +184,7 @@ def _history(app):
     def show_open(h, on):
         row, content, c, panel = rows[h]
         row.restyle(bg="surf2" if on else None, hover=None if on else "surf2")
-        if on and panel is None:  # built the first time it opens
+        if on and panel is None:
             panel = details(c)
             content.addWidget(panel)
             rows[h] = (row, content, c, panel)
@@ -196,20 +192,18 @@ def _history(app):
             panel.setVisible(on)
 
     def toggle(h):
-        # opened and closed in place: a re-render would rebuild the whole window (a flash) and scroll the list to the top
         was, s.open_commit = s.open_commit, None if s.open_commit == h else h
         for k in {was, s.open_commit} & rows.keys():
             show_open(k, k == s.open_commit)
 
     def show_filter(k):
-        # every commit is built; the filter only hides rows, in place like toggle
         s.hist_filter = k
         seg.select(k)
         for row, _, c, _ in rows.values():
             row.setVisible(k == "all" or touches(c))
 
     seg = Segmented([("all", "All"), ("file", "This file")], s.hist_filter, show_filter)
-    for c in store.COMMITS[app.view_index():]:  # history up to the commit being shown
+    for c in store.COMMITS[app.view_index():]:
         title = hbox(spacing=6, align=Qt.AlignmentFlag.AlignVCenter)
         title.addWidget(Label(c[1], 14, 600))
         for ref, k in c[6]:
@@ -226,7 +220,7 @@ def _history(app):
         rows[c[0]] = (row, content, c, None)
         show_open(c[0], c[0] == s.open_commit)
         if s.hist_filter == "file" and not touches(c):
-            row.hide()  # only ever hide here: showing a widget with no parent yet opens it as a window for a moment
+            row.hide()
         lst.addWidget(row)
     if not store.COMMITS:
         lst.addWidget(Label(f"{store.PROJECT['path']} is not a git repository.", 13, 400, "body", wrap=True))
@@ -234,14 +228,14 @@ def _history(app):
     body = vbox(hbox(Label("Git history", 16, 600, lh=24), "stretch", seg, margins=(20, 18, 20, 10), align=Qt.AlignmentFlag.AlignVCenter))
     body.addWidget(Scroll(wrap(vbox(lst, margins=(12, 0, 12, 12)))), 1)
     hist = Box(bg="surf", radius=16, layout=body)
-    hist.setFixedWidth(sidebar.WIDTH)  # as wide as the left panel
+    hist.setFixedWidth(sidebar.WIDTH)
     return hist
 
 
 def build(app):
     if not store.PROJECT:
         return empty_state("No project loaded", "Open Setting and load a laboard .toml project file.")
-    g = Flow(per_row=2)  # two columns; one when the centre is too narrow, the cards then scroll vertically
+    g = Flow(per_row=2)
     for c in (_data_card(app), _model_card(app), _run_card(app), _result_card(app)):
         g.add(c, 380)
     cards = Scroll(wrap(vbox(g, "stretch")))

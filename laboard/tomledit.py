@@ -1,8 +1,3 @@
-"""A project toml as editable fields: read it section by section and write single values back,
-keeping the file's comments, order and layout.
-
-Section and key names are written as ``title`` spells them ([Project] Name, [DB] DB_ip, [Path] Models)
-and read in any case; internally (``SCHEMA``, ``ENUMS``, ``HELP``, ``normalize``) they are lower case."""
 import json
 import re
 import tomllib
@@ -10,9 +5,7 @@ from datetime import date, datetime, time
 
 TASKS = ("classification", "object detection", "instance segmentation", "semantic segmentation", "panoptic segmentation",
          "anomaly detection", "pose-estimation")
-TASK_ALIASES = {"detection": "objectdetection", "keypoint": "poseestimation", "keypoints": "poseestimation"}  # by task_id
-# every key of a task project file, in the order the Setting page always lists them (see template.toml); lower case,
-# written as ``title`` spells them.
+TASK_ALIASES = {"detection": "objectdetection", "keypoint": "poseestimation", "keypoints": "poseestimation"}
 SCHEMA = (("project", ("name", "root", "task", "db")),
           ("db", ("db", "db_ip")),
           ("git", ("remote", "branch")),
@@ -20,25 +13,21 @@ SCHEMA = (("project", ("name", "root", "task", "db")),
           ("data", ("type", "file_path", "table", "raw")),
           ("label", ("type", "file_path", "table", "label")),
           ("prediction", ("type", "file_path", "table", "predict", "predict_score")))
-# keys with a fixed set of values, shown as drop-downs (section names match in any case)
 ENUMS = {("project", "db"): (True, False),
-         ("data", "type"): ("CSV", "DB"),  # read in any case
+         ("data", "type"): ("CSV", "DB"),
          ("label", "type"): ("CSV", "DB"),
          ("prediction", "type"): ("CSV", "DB")}
 BARE_VALUE = re.compile(r"^(\s*[\w.-]+\s*=\s*)(?!(?:true|false|inf|nan)\b)([A-Za-z_][\w-]*)(\s*(?:#.*)?)$", re.M)
 HEADER = re.compile(r"^\s*\[([^\[\]]+)\]\s*(#.*)?$")
-ALIASES = {"path": "paths", "lables": "labels"}  # section names read as another
+ALIASES = {"path": "paths", "lables": "labels"}
 
 
 def task_id(name):
-    """A task name compared loosely: case, spaces, "_" and "-" don't matter ("Object_detection" = "object detection"),
-    and an alias is its task ("detection" = "object detection", "keypoints" = "pose-estimation")."""
     tid = re.sub(r"[^a-z]", "", str(name).lower())
     return TASK_ALIASES.get(tid, tid)
 
 
 def title(name):
-    """How a section or key name is written: first letter upper case, db → DB (db_ip → DB_ip), paths → Path."""
     if "." in name:
         return ".".join(map(title, name.split(".")))
     low = name.lower()
@@ -50,13 +39,11 @@ def title(name):
 
 
 def canon(section):
-    """The lower-case name a section is read as: [Path] → paths, [DB] → db."""
     low = section.lower()
     return ALIASES.get(low, low)
 
 
 def normalize(cfg):
-    """``cfg`` with every key lower case and section aliases resolved, as the loader reads it."""
     def low(d):
         return {k.lower(): low(v) if isinstance(v, dict) else v for k, v in d.items()}
     out = {}
@@ -66,17 +53,16 @@ def normalize(cfg):
 
 
 class Raw(str):
-    """A value typed as a toml literal (number, list, inline table, date), checked when saved."""
+    pass
 
 
 def _bare(m):
     word = m.group(2)
-    value = word.lower() if word in ("True", "False") else f'"{word}"'  # Python-style booleans are booleans
+    value = word.lower() if word in ("True", "False") else f'"{word}"'
     return m.group(1) + value + m.group(3)
 
 
 def parse(text):
-    """dict from toml text; a bare word value (``data = DB``) is read as a string, ``True`` / ``False`` as booleans."""
     try:
         return tomllib.loads(text)
     except tomllib.TOMLDecodeError as e:
@@ -90,15 +76,12 @@ def parse(text):
 
 
 def written(v):
-    """toml text for a key's value as Laboard writes it: booleans as True / False (read back by ``parse``),
-    anything else as ``literal``."""
     return ("True" if v else "False") if isinstance(v, bool) else literal(v)
 
 
 def literal(v):
-    """toml text for a value (booleans inside lists and inline tables stay true / false)."""
     if isinstance(v, Raw):
-        tomllib.loads(f"x = {v}")  # raises with the reason when it isn't a toml value
+        tomllib.loads(f"x = {v}")
         return str(v)
     if isinstance(v, bool):
         return "true" if v else "false"
@@ -113,7 +96,6 @@ def literal(v):
     return repr(v)
 
 
-# what to put in each key, shown as the Setting page's tooltip and in its Edit popup
 HELP = {
     ("project", "name"): "Project name shown in the title bar and on Home. Any text. "
                          "Left out: the name of the root folder.",
@@ -197,7 +179,6 @@ def enum(section, key):
 
 
 def describe(section, key):
-    """What to put in ``section.key``, for people editing it."""
     s, key = canon(section), key.lower()
     text = HELP.get((s, key)) or (HELP[("labels", "*")] if s == "labels" else None)
     if text is None and s.endswith(".columns"):
@@ -211,14 +192,10 @@ def _name(header):
 
 
 def _headers(lines):
-    """[(section name, line index)] in file order."""
     return [(_name(m.group(1)), i) for i, line in enumerate(lines) if (m := HEADER.match(line))]
 
 
 def fields(text):
-    """[(section, [(key, value)])]: every ``SCHEMA`` section and key in its order, whatever the file holds (value
-    None when the file leaves a key out), then any other keys the file has, in file order. Names are the file's
-    spelling, or ``title``'s for what the file leaves out."""
     cfg = parse(text)
     names = [n for n, _ in _headers(text.splitlines())]
     in_file = {}
@@ -226,20 +203,18 @@ def fields(text):
         d = cfg
         for part in sec.split(".") if sec else []:
             d = d.get(part, {}) if isinstance(d, dict) else {}
-        # sub-tables with their own [a.b] header are listed as sections of their own
         items = [(k, v) for k, v in d.items() if not (isinstance(v, dict) and (f"{sec}.{k}" if sec else k) in names)]
         if items or sec:
             in_file[sec] = items
     out = []
     for sec, keys in SCHEMA:
-        name = next((n for n in in_file if canon(n) == sec), title(sec))  # the file's spelling, e.g. [paths]
+        name = next((n for n in in_file if canon(n) == sec), title(sec))
         have = {k.lower(): (k, v) for k, v in in_file.pop(name, [])}
         out.append((name, [have.pop(k.lower(), (title(k), None)) for k in keys] + list(have.values())))
     return out + [(s, items) for s, items in in_file.items() if items]
 
 
 def _comment(line):
-    """The trailing ``# …`` of a ``key = value`` line, or ""."""
     for i, c in enumerate(line):
         if c == "#":
             try:
@@ -270,7 +245,7 @@ def _set(lines, section, key, value):
     if value is None:
         return lines
     entry = f"{key} = {written(value)}"
-    if span:  # after the section's last non-blank line
+    if span:
         at = max((i for i in range(*span) if lines[i].strip()), default=span[0] - 1) + 1
         lines.insert(at, entry)
     else:
@@ -279,8 +254,6 @@ def _set(lines, section, key, value):
 
 
 def save(text, edits):
-    """``text`` with ``edits`` ({(section, key): value, None removes the key}) applied; raises when the
-    result isn't valid toml."""
     lines = text.splitlines()
     for (section, key), value in edits.items():
         lines = _set(lines, section, key, value)

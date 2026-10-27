@@ -1,22 +1,14 @@
-"""Design tokens from the Wise design system, plus the app's light/dark palettes.
-
-Widgets read colours from ``T`` at build time, and custom-painted widgets read it
-in ``paintEvent``. Switching theme swaps ``T`` and the main window rebuilds.
-"""
 from pathlib import Path
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QFont, QFontDatabase, QIcon, QPixmap
+from PyQt6.QtGui import QColor, QFont, QFontDatabase, QIcon, QPainter, QPixmap
+from PyQt6.QtSvg import QSvgRenderer
 
-# Fixed brand tokens (tokens/colors.css)
 WISE_GREEN = "#9fe870"
 WISE_GREEN_PALE = "#e2f6d5"
 WISE_GREEN_ACTIVE = "#cdffad"
 SAGE, SAGE_HOVER = "#e8ebe6", "#d9ddd6"
 INK = "#0e0f0c"
-INK_DEEP = "#163300"
-BODY = "#454745"
-MUTE = "#868685"
 CANVAS = "#ffffff"
 CANVAS_SOFT = "#e8ebe6"
 POSITIVE = "#2ead4b"
@@ -27,10 +19,7 @@ WARNING_CONTENT = "#4a3b1c"
 NEGATIVE = "#d03238"
 NEGATIVE_BG = "#320707"
 NEGATIVE_DARKEST = "#a7000d"
-ACCENT_ORANGE = "#ffc091"
-ACCENT_CYAN = "#38c8ff"
 
-# Theme palettes ([data-theme] blocks in the prototype). ``stage``: behind images and the model graph
 PALETTES = {
     "light": dict(bg="#e8ebe6", surf="#ffffff", surf2="#e8ebe6", ink="#0e0f0c", body="#454745",
                   mute="#868685", line="#e8ebe6", sel="#e2f6d5", selfg="#0e0f0c", brand="#0e0f0c",
@@ -65,30 +54,29 @@ def qc(color, alpha=None):
     return c
 
 
-# Fonts (tokens/fonts.css, tokens/typography.css)
 BODY_FAMILY = "Inter"
 DISPLAY_FAMILY = "Figtree"
 MONO_FAMILY = "monospace"
 
 FONT_DIR = Path(__file__).parent / "assets" / "fonts"
-LOGO_DIR = Path(__file__).parent / "assets" / "logo"
-LOGO_FILES = [(64, "laboard_logo_64.png"), (256, "laboard_logo_256.png"), (1024, "laboard_logo.png")]
+LOGO_SVG = Path(__file__).parent / "assets" / "logo" / "laboard_splash.svg"
 
 
 def logo_icon():
-    """Window / taskbar icon with every logo size, so the OS picks the sharpest."""
     icon = QIcon()
-    for _, name in LOGO_FILES:
-        icon.addFile(str(LOGO_DIR / name))
+    for size in (64, 256, 1024):
+        icon.addPixmap(logo_pixmap(size))
     return icon
 
 
 def logo_pixmap(px, dpr=1.0):
-    """The logo at ``px`` logical pixels, scaled down from the smallest file that is big enough."""
-    need = px * dpr
-    name = next((n for size, n in LOGO_FILES if size >= need), LOGO_FILES[-1][1])
-    pix = QPixmap(str(LOGO_DIR / name)).scaled(round(need), round(need), Qt.AspectRatioMode.KeepAspectRatio,
-                                               Qt.TransformationMode.SmoothTransformation)
+    side = round(px * dpr)
+    pix = QPixmap(side, side)
+    pix.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pix)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    QSvgRenderer(str(LOGO_SVG)).render(p)
+    p.end()
     pix.setDevicePixelRatio(dpr)
     return pix
 

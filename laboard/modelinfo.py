@@ -1,10 +1,3 @@
-"""Read a model file's tensors and properties without a GPU, TensorRT or torch.
-
-ONNX via the ``onnx`` package (graph only; external weight files are not loaded), safetensors
-from its JSON header, Flax ``.msgpack`` via ``msgpack``, PyTorch zip checkpoints with a restricted
-unpickler that records tensor shapes and never imports or runs code from the file. TensorRT
-engines are serialized for one TensorRT build, so only their header is read.
-"""
 import json
 import math
 import pickle
@@ -30,11 +23,9 @@ class Tensor:
 
 
 def count(n):
-    """1234567 → '1.23M'."""
     return f"{n / 1e9:.2f}B" if n >= 1e9 else f"{n / 1e6:.2f}M" if n >= 1e6 else f"{n / 1e3:.1f}K" if n >= 1e3 else str(n)
 
 
-# ---------------------------------------------------------------- formats → ({name: Tensor}, [(prop, value)])
 def _onnx(p):
     import onnx
 
@@ -42,13 +33,12 @@ def _onnx(p):
     g = m.graph
     dtype = onnx.TensorProto.DataType.Name
     tensors = {t.name: Tensor(t.dims, dtype(t.data_type).lower()) for t in g.initializer}
-    for n in g.node:  # weights stored as Constant nodes
+    for n in g.node:
         if n.op_type == "Constant":
             for a in n.attribute:
                 if a.name == "value" and a.t.dims:
                     tensors.setdefault(n.output[0], Tensor(a.t.dims, dtype(a.t.data_type).lower()))
     init = set(tensors)
-    # group weights by the node using them: its scope (/layer1/conv/Conv) when named so, else its op type
     users = {}
     for n in g.node:
         for i in n.input:
@@ -87,10 +77,10 @@ def _msgpack(p):
     import msgpack
 
     def ext(code, data):
-        if code == 1:  # flax ndarray: (shape, dtype, buffer)
+        if code == 1:
             shape, dtype, _ = msgpack.unpackb(data, raw=False)
             return Tensor(shape, dtype)
-        if code == 3:  # numpy scalar
+        if code == 3:
             return Tensor((), msgpack.unpackb(data, raw=False)[0])
         return msgpack.ExtType(code, data)
 
@@ -102,8 +92,6 @@ def _msgpack(p):
 
 
 class _Obj:
-    """Stand-in for any class a checkpoint pickles (modules, optimizers, numpy scalars, ...)."""
-
     def __new__(cls, *a, **k):
         return object.__new__(cls)
 
@@ -114,14 +102,7 @@ class _Obj:
         self.state = state
 
 
-class _Storage:
-    def __init__(self, dtype):
-        self.dtype = dtype
-
-
 class _Unpickler(pickle.Unpickler):
-    """Rebuilds tensors as shapes only; every other global becomes an inert _Obj subclass."""
-
     def find_class(self, module, name):
         if module == "collections" and name == "OrderedDict":
             return OrderedDict
@@ -135,16 +116,14 @@ class _Unpickler(pickle.Unpickler):
             return name
         return type(name, (_Obj,), {"__module__": "stub." + module})
 
-    def persistent_load(self, pid):  # ('storage', storage type, key, location, numel)
+    def persistent_load(self, pid):
         return pid[1] if isinstance(pid[1], str) else "untyped"
 
 
-CHECKPOINT_SKIP = re.compile(r"optim|sched|scaler|rng|history|ema_|swa_", re.I)  # checkpoint entries that aren't the model
+CHECKPOINT_SKIP = re.compile(r"optim|sched|scaler|rng|history|ema_|swa_", re.I)
 
 
 def model_tensors(obj):
-    """{name: Tensor} of the model in an unpickled checkpoint: the largest tensor dict among its entries,
-    leaving out optimizer / scheduler / rng state; the whole object when it is a state dict or a module."""
     if isinstance(obj, dict) and not all(isinstance(v, Tensor) for v in obj.values()):
         parts = {k: OrderedDict(_leaves(v)) for k, v in obj.items()
                  if not CHECKPOINT_SKIP.search(str(k)) and not isinstance(v, Tensor)}
@@ -158,12 +137,12 @@ def _torch(p):
     if not zipfile.is_zipfile(p):
         raise ValueError("legacy (non-zip) torch file; re-save with torch>=1.6 to inspect")
     with zipfile.ZipFile(p) as z:
-        name = next(n for n in z.namelist() if n.endswith("data.pkl"))
-        obj = _Unpickler(z.open(name)).load()
+        names = z.namelist()
+        obj = _Unpickler(z.open(next(n for n in names if n.endswith("data.pkl")))).load()
     tensors = model_tensors(obj)
     kind = "state_dict" if isinstance(obj, dict) and all(isinstance(v, Tensor) for v in obj.values()) else \
         "checkpoint dict" if isinstance(obj, dict) else type(obj).__name__
-    if any("/code/" in n for n in zipfile.ZipFile(p).namelist()):
+    if any("/code/" in n for n in names):
         kind = "TorchScript"
     props = [("Format", f"PyTorch zip · {kind}"), ("Tensors", f"{len(tensors):,}")]
     if isinstance(obj, dict):
@@ -182,11 +161,10 @@ def _engine(p):
     return {}, props
 
 
-_SKIP = {"_modules", "_parameters", "_buffers", "state", "args", "params"}  # containers, not layer names
+_SKIP = {"_modules", "_parameters", "_buffers", "state", "args", "params"}
 
 
 def _leaves(obj, prefix=""):
-    """(dotted name, Tensor) for every tensor in nested dicts / lists / pickled objects."""
     if isinstance(obj, Tensor):
         yield prefix.rstrip("."), obj
     elif isinstance(obj, dict):
@@ -200,13 +178,12 @@ def _leaves(obj, prefix=""):
 
 
 def _layers(tensors):
-    """[(layer, parameter count)]: the deepest name prefix that still gives at most MAX_LAYERS groups."""
     parts = {k: [s for s in re.split(r"[./:]", k) if s] for k in tensors}
     best = []
     top = Counter()
     for k, t in tensors.items():
         top[parts[k][0] if parts[k] else k] += t.size
-    if len(top) > MAX_LAYERS:  # flat names: the biggest groups plus the rest
+    if len(top) > MAX_LAYERS:
         head = top.most_common(MAX_LAYERS - 1)
         return head + [("other", sum(top.values()) - sum(n for _, n in head))]
     for depth in range(1, 8):
@@ -227,14 +204,13 @@ READERS = {".onnx": _onnx, ".safetensors": _safetensors, ".msgpack": _msgpack, "
 
 
 def inspect(path):
-    """dict(stats=[(k, v)], props=[(k, v)], layers=[(name, params)]) for a model file; cached per mtime."""
     p = Path(path)
     key = (str(p), p.stat().st_mtime)
     if key not in _cache:
         reader = READERS.get(p.suffix.lower())
         try:
             tensors, props = reader(p) if reader else ({}, [("Format", p.suffix[1:].upper() or "file")])
-        except Exception as e:  # unreadable or unexpected layout: show why instead of failing the page
+        except Exception as e:
             tensors, props = {}, [("Could not read", f"{type(e).__name__}: {str(e)[:80]}")]
         total = sum(t.size for t in tensors.values())
         stats = [("Parameters", count(total))] if tensors else []

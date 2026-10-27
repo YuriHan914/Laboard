@@ -1,4 +1,3 @@
-"""Model: the selected model file in Netron, with properties and parameters read from the file."""
 from PyQt6.QtCore import Qt, QUrl
 from PyQt6.QtGui import QDesktopServices
 
@@ -12,7 +11,6 @@ def _graph_card(app, sel, path, fmt):
                 margins=(20, 14, 20, 14), align=Qt.AlignmentFlag.AlignVCenter)
     note = None
     if netronview.AVAILABLE and torchgraph.is_pickle(path):
-        # a torch.save checkpoint has no wiring: by default draw its modules in registration order instead
         head.addWidget(Segmented([("inferred", "Layer sequence"), ("stored", "As stored")], app.s.pt_view,
                                  lambda k: app.set(pt_view=k)))
         head.addSpacing(12)
@@ -24,7 +22,7 @@ def _graph_card(app, sel, path, fmt):
                              "registered. Checkpoints don't store how layers connect, so branches and skips aren't shown.",
                              12, 400, "mute", wrap=True)
                 note.setContentsMargins(20, 0, 20, 10)
-    if fmt.startswith("TensorRT"):  # engines are compiled for one TensorRT build; netron can't list their layers
+    if fmt.startswith("TensorRT"):
         msg = Label("TensorRT engines are compiled for one TensorRT version and GPU, so their layers can't be read "
                     "without that runtime. Open the ONNX file the engine was built from to see the graph.", 28, 400,
                     "body", align=Qt.AlignmentFlag.AlignCenter, wrap=True)
@@ -33,9 +31,9 @@ def _graph_card(app, sel, path, fmt):
         graph = netronview.view(path)
         head.addWidget(Button("Open in browser", on_click=lambda: QDesktopServices.openUrl(QUrl(netronview.url()))))
     else:
-        note = Label("Install netron and PyQt6-WebEngine to see the model graph: pip install -r requirements.txt", 14, 400,
-                     "body", align=Qt.AlignmentFlag.AlignCenter, wrap=True)
-        graph = Box(bg="bg", radius=12, layout=vbox("stretch", note, "stretch", margins=(24, 24, 24, 24)))
+        msg = Label("Install netron and PyQt6-WebEngine to see the model graph: pip install -r requirements.txt", 14, 400,
+                    "body", align=Qt.AlignmentFlag.AlignCenter, wrap=True)
+        graph = Box(bg="bg", radius=12, layout=vbox("stretch", msg, "stretch", margins=(24, 24, 24, 24)))
     return Box(bg="surf", radius=16, layout=vbox(head, *([note] if note else []), (hbox(graph, margins=(12, 0, 12, 12)), 1)))
 
 
@@ -76,5 +74,5 @@ def build(app):
         side.addWidget(_layers(meta["layers"]))
     side.addStretch(1)
     side = Scroll(wrap(side))
-    side.setFixedWidth(sidebar.WIDTH)  # as wide as the left panel
+    side.setFixedWidth(sidebar.WIDTH)
     return _graph_card(app, sel, file_info["path"], fmt), side

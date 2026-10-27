@@ -1,30 +1,3 @@
-"""Load a laboard .toml project into ``store``, which the UI reads.
-
-Nothing here assumes particular file names, counts or formats:
-
-* Data rows come from one of two sources, picked by ``paths.data``:
-
-  - ``data = "DB"`` (the name of a toml table, any case, quotes optional): rows from that
-    table's database, e.g. ``[DB] supabase = "http://127.0.0.1:54323/"  table = "semiconductor"``;
-  - a table file (csv / tsv / jsonl / parquet) listing one data file per row.
-
-  A ``[db]`` table next to a path is tried first and falls back to that path. The ground truth
-  of a db table or table file is always its ``label`` column. Path / split columns are matched
-  by common names, then detected from the values; ``[db.columns]`` or ``[data.columns]``
-  override them.
-* Models are files with a known checkpoint extension (``[models] extensions`` overrides);
-  when none match, every file under ``paths.models`` is listed.
-* Runs (the Hyperparameter page) are folders under ``[Path] Hyperparameter`` holding json / yaml / toml configs.
-* A value written ``host:path`` is on another machine, read over ssh (``remote``): Models / Hyperparameter / Results
-  folders and [Data] / [Label] / [Prediction] files are copied into a temp folder on every load (``REMOTE_COPY``,
-  ``_copy_remote``); the data files a table lists as ``host:path`` stay remote, their sizes read over ssh and each
-  file fetched when the Data page shows it.
-* Results are every file under ``paths.results``.
-
-File names that repeat in different folders are shown by their relative path, so each
-sidebar entry stays unique. Sections that find nothing stay empty, and ``DETECTED`` says
-what was found.
-"""
 import atexit
 import copy
 import csv
@@ -44,8 +17,6 @@ from urllib.parse import urlparse
 
 from . import labels as label_values, remote, store, tomledit
 
-# column name aliases, first match wins (db: file_path/label/type, csv: data_path/label/status).
-# The ground truth of a db table / table file is always its "label" column; [*.columns] can't move it.
 COLS = dict(path=("file_path", "data_path", "path", "filepath", "file", "image", "image_path", "img", "filename"),
             label=("label",), split=("type", "status", "split", "subset", "set"),
             task=("object", "task"), created=("create_date", "created_at", "created", "date", "timestamp"),
@@ -61,18 +32,17 @@ TABLE_EXT = (".csv", ".tsv", ".jsonl", ".parquet")
 CONFIG_EXT = (".json", ".yaml", ".yml", ".toml")
 IMAGE_EXT = {"png", "jpg", "jpeg", "bmp", "gif", "webp", "tif", "tiff"}
 FORMAT_COLORS = ["ink", "c2", "c3", "mute", "grid", "body"]
-MAX_DATA_FILES = 200_000  # rows read from a table
+MAX_DATA_FILES = 200_000
 MAX_RESULT_FILES = 20_000
 MAX_RUNS, RUN_DEPTH = 500, 3
-PATH_LABELS = dict(data="Data", models="Models", runs="Hyperparameter", results="Results")  # paths keys as the toml names them
-MAX_CONFIG_ROWS = 2_000  # rows read from one run config (the Hyperparameter page pages them as set in Setting)
+PATH_LABELS = dict(data="Data", models="Models", runs="Hyperparameter", results="Results")
+MAX_CONFIG_ROWS = 2_000
 SNAPSHOT_ROOT = Path(tempfile.gettempdir()) / "laboard-snapshots"
 TASKS = tomledit.TASKS
-RESERVED = {"project", "git", "paths", "data", "models", "labels", "lables", "prediction"}  # toml tables that aren't a database
-# a host:path [Path] value: which files of it are copied over ssh (see remote.py), by paths key
+RESERVED = {"project", "git", "paths", "data", "models", "labels", "lables", "prediction"}
 REMOTE_COPY = dict(models=dict(max_size=500_000_000), runs=dict(exts=CONFIG_EXT, depth=RUN_DEPTH + 1, max_size=2_000_000),
                    results=dict(max_size=50_000_000))
-REMOTE_FILE_MAX = 50_000_000  # a remote [Data] / [Label] / [Prediction] file
+REMOTE_FILE_MAX = 50_000_000
 
 _PATCHED = ("PROJECT", "COMMITS", "ROOT_FOLDERS", "DASH", "DATA_FOLDERS", "CLASSES", "SPLIT_TOTALS", "SPLIT_SOURCE",
             "SPLIT_OVERLAP", "MODEL_FILES", "MODEL_INFO", "RUNS", "RUN_DETAILS", "RESULT_FILES",
@@ -80,7 +50,6 @@ _PATCHED = ("PROJECT", "COMMITS", "ROOT_FOLDERS", "DASH", "DATA_FOLDERS", "CLASS
 _original = None
 
 
-# ---------------------------------------------------------------- helpers
 def _size(n):
     for unit in ("B", "KB", "MB", "GB"):
         if n < 1024 or unit == "GB":
@@ -110,10 +79,9 @@ def _run(*cmd, cwd=None, timeout=10):
 
 
 def _resolve(value, base):
-    """Path from the toml: absolute, relative to the toml, or absolute with the leading '/' missing."""
     if not value:
         return None
-    if remote.split(value):  # a remote path, read over ssh; never a local path
+    if remote.split(value):
         return Path(value)
     p = Path(value).expanduser()
     if p.is_absolute():
@@ -133,13 +101,11 @@ def _rel(p, root):
 
 
 def _labels(paths, root):
-    """Sidebar label per path: the file name, or its path under ``root`` when the name repeats."""
     counts = Counter(Path(p).name for p in paths)
     return [Path(p).name if counts[Path(p).name] == 1 else _rel(p, root) for p in paths]
 
 
 def _walk(root, max_depth=None):
-    """os.walk without hidden folders / __pycache__, sorted, optionally depth-limited."""
     for dp, dn, fn in os.walk(root):
         depth = len(Path(dp).relative_to(root).parts)
         dn[:] = sorted(d for d in dn if not d.startswith(".") and d != "__pycache__")
@@ -152,21 +118,15 @@ def _ext(name):
     return name.rsplit(".", 1)[-1].lower() if "." in name else ""
 
 
-# ---------------------------------------------------------------- data rows: db → table file
-DB_URL_KEYS = ("dsn", "url", "supabase", "db_ip")  # where a database section holds its address, first set wins
-# backend → (the driver used when a URL names none, the pip extra installing it); sqlite3 comes with Python
+DB_URL_KEYS = ("dsn", "url", "supabase", "db_ip")
 DB_DRIVERS = {"postgresql": ("psycopg2", "postgres"), "mysql": ("pymysql", "mysql"), "mariadb": ("pymysql", "mysql"),
               "mssql": ("pymssql", "mssql"), "oracle": ("oracledb", "oracle")}
 DB_TIMEOUT = {"psycopg2": "connect_timeout", "psycopg": "connect_timeout", "pymysql": "connect_timeout",
               "mysqldb": "connect_timeout", "pymssql": "login_timeout", "pyodbc": "timeout",
-              "oracledb": "tcp_connect_timeout"}  # driver → its connect-timeout argument (seconds)
+              "oracledb": "tcp_connect_timeout"}
 
 
 def _db_url(db):
-    """The SQLAlchemy URL of a database section: its address as written (``postgresql://…``, ``mysql://…``,
-    ``mariadb://…``, ``sqlite:///data.db``, ``mssql://…``, ``oracle://…?service_name=…``), with laboard's driver
-    filled in when it names none; a Supabase URL (local stack: API 54321, Postgres 54322, Studio 54323) → its
-    Postgres."""
     from sqlalchemy.engine import URL, make_url
 
     url = str(next((db[k] for k in DB_URL_KEYS if db.get(k)), ""))
@@ -181,7 +141,6 @@ def _db_url(db):
 
 
 def _sqlite_paths(cfg, base):
-    """A database section's SQLite file written relative (``DB_ip = "sqlite:///data.db"``) is under ``base``."""
     for sec in cfg.values():
         for k in DB_URL_KEYS if isinstance(sec, dict) else ():
             v = sec.get(k)
@@ -192,11 +151,9 @@ def _sqlite_paths(cfg, base):
 
 
 def _rows_from_db(db):
-    """(rows, src) of ``db["table"]`` (``table`` or ``schema.table``): its first ``limit`` rows by the first
-    column, through SQLAlchemy, so any database it has a driver for works."""
     try:
         import sqlalchemy as sa
-    except ImportError as e:  # laboard run from a checkout without pip install
+    except ImportError as e:
         raise ImportError(f"{e}; install it with: pip install \"SQLAlchemy>=2.0\"") from e
 
     u = _db_url(db)
@@ -205,7 +162,7 @@ def _rows_from_db(db):
     try:
         engine = sa.create_engine(u, poolclass=sa.pool.NullPool,
                                   connect_args={timeout: 3} if timeout and timeout not in u.query else {})
-    except ImportError as e:  # the driver isn't installed
+    except ImportError as e:
         extra = DB_DRIVERS.get(backend, (None, None))[1]
         raise ImportError(f"{e}; install it with: pip install \"laboard[{extra}]\"" if extra else str(e)) from e
     schema, _, name = db["table"].rpartition(".")
@@ -223,7 +180,7 @@ def _rows_from_db(db):
 def _read_table(f):
     ext = f.suffix.lower()
     if ext == ".parquet":
-        import pandas  # optional; only needed for parquet
+        import pandas
         return pandas.read_parquet(f).head(MAX_DATA_FILES).to_dict("records")
     with open(f, newline="") as fh:
         if ext == ".jsonl":
@@ -243,7 +200,6 @@ def _read_table(f):
 
 
 def _rows_from_table(data_dir, data_cfg, base):
-    """``paths.data`` when it is a table file (or ``[data] table``) that has a file-path column."""
     if data_cfg.get("table"):
         f = _resolve(data_cfg["table"], base)
     elif data_dir and data_dir.is_file() and data_dir.suffix.lower() in TABLE_EXT:
@@ -268,7 +224,6 @@ def _abs(p, base):
 
 
 def _folder_of(f):
-    """The folder that relative paths in the table file ``f`` are under: its own, or a remote copy's original one."""
     return remote.parent(f) or f.parent
 
 
@@ -284,15 +239,12 @@ def _looks_like_split(rows, col):
 
 
 def _named(names, want):
-    """The column of ``names`` called ``want``, in any case (a database may keep "Label" or upper-case it to
-    "LABEL"); ``want`` itself when none is."""
     if not want or want in names:
         return want
     return next((n for n in names if n.lower() == str(want).lower()), want)
 
 
 def _columns(rows, override):
-    """Actual column name for each logical key: toml override, then alias, then guessed from values."""
     names = list(dict.fromkeys(k for r in rows[:50] for k in r))
     lower = {n.lower(): n for n in names}
     out = {}
@@ -300,7 +252,7 @@ def _columns(rows, override):
         want = _named(names, override.get(key))
         out[key] = want if want in names else next((lower[a] for a in aliases if a in lower), None)
     if out["path"] and out["path"] != override.get("path") and not _looks_like_path(rows, out["path"]):
-        out["path"] = None  # e.g. a "file" column holding ids, not paths
+        out["path"] = None
     if not out["path"]:
         out["path"] = next((n for n in names if _looks_like_path(rows, n)), None)
     if not out["split"]:
@@ -326,7 +278,7 @@ def _normalize(raw, cols, base=None):
                 created = datetime.fromisoformat(created)
             except ValueError:
                 created = None
-        elif isinstance(created, date) and not isinstance(created, datetime):  # a db DATE column
+        elif isinstance(created, date) and not isinstance(created, datetime):
             created = datetime.combine(created, datetime.min.time())
         elif not isinstance(created, datetime):
             created = None
@@ -341,8 +293,7 @@ def _normalize(raw, cols, base=None):
 
 
 def _data(rows, src, cols):
-    """DATA_FOLDERS etc. from normalized rows. A folder is the file's directory minus its split part."""
-    far, far_error = {}, None  # remote files' (size, mtime), see remote.py
+    far, far_error = {}, None
     try:
         far = remote.stat([r["path"] for r in rows])
     except OSError as e:
@@ -397,7 +348,6 @@ def _data(rows, src, cols):
     else:
         tiles = [("Total files", f"{len(rows):,}"), ("Classes", str(len(classes))), ("Folders", str(len(folders)))]
 
-    # files added per month, from the created column (or file mtime)
     months = Counter()
     for r in rows:
         when = r["created"] or (datetime.fromtimestamp(r["mtime"]) if r["mtime"] else None)
@@ -420,16 +370,13 @@ def _data(rows, src, cols):
                  ([("Remote data files", far_error, "warning", "Unreachable")] if far_error else []))
 
 
-
 def _load_data(db, data_cfg, paths, base, detected, notes, as_of=None):
-    """Rows from db / table. ``db``: the toml's database table ({} for none); paths.data is the
-    fallback when set. ``as_of`` (a commit's time) hides db rows created after it."""
     src = None
     if db.get("table"):
         try:
             src = _rows_from_db(db)
             detected.append(("Database", f"{src[1]['where']} · {db['table']} · {len(src[0]):,} rows", "positive", "Connected"))
-        except Exception as e:  # driver missing, server down, bad table: fall back to paths.data
+        except Exception as e:
             msg = str(e).strip().splitlines()[0] if str(e).strip() else type(e).__name__
             notes.append(f"DB {db['table']} unavailable ({msg}); " + ("using Path.Data" if paths["data"] else "no Path.Data to fall back to"))
             detected.append(("Database", f"{db['table']} · {msg}", "warning", "Unreachable"))
@@ -454,15 +401,13 @@ def _load_data(db, data_cfg, paths, base, detected, notes, as_of=None):
 
 
 def _to_data(src, cols, base, notes, as_of):
-    """``_data`` from raw table / db rows (``_rows``)."""
     rows = _rows(src, cols, base, notes, as_of)
     return _data(rows, src[1], cols) if rows else None
 
 
 def _rows(src, cols, base, notes, as_of):
-    """Normalized rows from raw table / db rows. ``as_of`` (a commit's time) hides db rows created after it."""
     rows = _normalize(src[0], cols, src[1].get("base") or base)
-    if as_of and src[1]["kind"] == "db":  # db rows aren't versioned in git; their created column dates them
+    if as_of and src[1]["kind"] == "db":
         dated = [r for r in rows if r["created"] is None or r["created"] <= as_of]
         if any(r["created"] for r in rows):
             if len(dated) < len(rows):
@@ -473,13 +418,11 @@ def _rows(src, cols, base, notes, as_of):
     return rows
 
 
-# ---------------------------------------------------------------- task projects: [Data] / [Label] / [Prediction]
 _task_id = tomledit.task_id
 TASK_IDS = {_task_id(t): t for t in TASKS}
 
 
 def _tasks(value, notes):
-    """The tasks of ``[Project] Task``: one name or a comma-separated list, in order."""
     out = []
     for part in str(value or "").split(","):
         if not part.strip():
@@ -493,7 +436,6 @@ def _tasks(value, notes):
 
 
 def _per_task(section, suffix):
-    """{task: value} of a section's ``<task>_<suffix>`` keys (normalized), e.g. object_detection_predict."""
     out = {}
     for k, v in section.items():
         if k.endswith("_" + suffix) and v not in (None, ""):
@@ -504,19 +446,16 @@ def _per_task(section, suffix):
 
 
 def _task_dir(folder, task):
-    """The sub-folder of ``folder`` named after ``task`` (in any case / spacing), or None."""
     if not folder or not folder.is_dir():
         return None
     return next((d for d in sorted(folder.iterdir()) if d.is_dir() and _task_id(d.name) == _task_id(task)), None)
 
 
 def _db_rows(cfg, table, section, detected, notes, cache):
-    """(rows, src) of ``table`` through the [DB] connection, or None (noted). ``cache``: table → result,
-    so [Data], [Label] and [Prediction] on one table query it once."""
     if table in cache:
         return cache[table]
     cache[table] = None
-    if cfg.get("project", {}).get("db") is False:  # left out or empty: allowed
+    if cfg.get("project", {}).get("db") is False:
         notes.append(f"[{section}] Type = DB, but [Project] DB = False")
     elif not table:
         notes.append(f"[{section}] Type = DB has no Table")
@@ -525,7 +464,7 @@ def _db_rows(cfg, table, section, detected, notes, cache):
             cache[table] = _rows_from_db({**cfg.get("db", {}), "table": table})
             src = cache[table]
             detected.append(("Database", f"{src[1]['where']} · {table} · {len(src[0]):,} rows", "positive", "Connected"))
-        except Exception as e:  # driver missing, server down, bad table
+        except Exception as e:
             msg = str(e).strip().splitlines()[0] if str(e).strip() else type(e).__name__
             notes.append(f"DB {table} unavailable ({msg})")
             detected.append(("Database", f"{table} · {msg}", "warning", "Unreachable"))
@@ -533,7 +472,6 @@ def _db_rows(cfg, table, section, detected, notes, cache):
 
 
 def _csv_rows(f, section, notes):
-    """(rows, src) of a csv / tsv / jsonl / parquet file, or None (noted)."""
     if not f or not f.is_file():
         notes.append(f"[{section}] File_path {f or '(not set)'} is not a file")
         return None
@@ -546,13 +484,6 @@ def _csv_rows(f, section, notes):
 
 
 def _task_data(cfg, paths, base, tasks, detected, notes, as_of, cache):
-    """Data rows of a task project: the files of [Data] (one source for every task), each with its ground truth
-    per task from [Label] (``_attach_labels``).
-
-    [Data] Type = "DB" (``Table``) | "CSV" (``File_path``: the csv listing the files). ``Raw`` names the column with
-    each raw file's path (guessed when left out).
-    Predictions never come from the data; they're read from [Prediction].
-    """
     dcfg = cfg.get("data", {})
     kind = str(dcfg.get("type") or "").lower()
     if kind == "db":
@@ -571,7 +502,7 @@ def _task_data(cfg, paths, base, tasks, detected, notes, as_of, cache):
         notes.append(f"{src[1]['label']}: no file-path column found (set [Data] Raw)")
         return None
     rows = _rows(src, cols, paths["data"], notes, as_of)
-    seen = set()  # a table listing a file once per task (a task column) still lists it once here
+    seen = set()
     rows = [r for r in rows if not (os.path.normpath(r["path"]) in seen or seen.add(os.path.normpath(r["path"])))]
     if not rows:
         return None
@@ -582,15 +513,12 @@ def _task_data(cfg, paths, base, tasks, detected, notes, as_of, cache):
 
 
 def _value(v):
-    """A label / prediction cell as text: json for a db json column (list / dict), None when empty."""
     if v in (None, "") or (isinstance(v, float) and v != v):
         return None
     return json.dumps(v) if isinstance(v, (list, dict)) else str(v)
 
 
 def _task_rows(rows, path_col, task):
-    """The rows of ``task`` when ``rows`` list a file once per task (a task column, file paths repeating), else
-    every row."""
     col = _columns(rows, {})["task"] if rows else None
     if not col or len({r.get(path_col) for r in rows}) == len(rows):
         return rows
@@ -598,13 +526,6 @@ def _task_rows(rows, path_col, task):
 
 
 def _attach_labels(cfg, paths, base, tasks, rows, data_kind, data_src, data_cols, detected, notes, cache):
-    """Give each row ``labels`` ({task: ground truth or None}) and ``label`` (the first task's: the viewer's default
-    uses it), from [Label].
-
-    [Label] Type = "DB" / "CSV": ``Label`` names the column with the ground truth, in ``Table`` / ``File_path``
-    (default: [Data]'s), matched to the data by the raw-file path column (``Raw``, default [Data]'s). A table listing
-    a file once per task (a task column) gives each task the value of its own row.
-    """
     lcfg, dcfg = cfg.get("label", {}), cfg.get("data", {})
     kind = str(lcfg.get("type") or data_kind).lower()
     col = lcfg.get("label")
@@ -616,7 +537,7 @@ def _attach_labels(cfg, paths, base, tasks, rows, data_kind, data_src, data_cols
     elif kind in ("db", "csv"):
         table, file = lcfg.get("table") or dcfg.get("table"), _resolve(lcfg.get("file_path"), base) or paths["data"]
         if kind == data_kind and (kind == "csv" and file == paths["data"] or kind == "db" and table == dcfg.get("table")):
-            src, path_col = data_src, data_cols["path"]  # the labels sit next to the files
+            src, path_col = data_src, data_cols["path"]
         else:
             src = _db_rows(cfg, table, "Label", detected, notes, cache) if kind == "db" else _csv_rows(file, "Label", notes)
             raw = lcfg.get("raw") or dcfg.get("raw")
@@ -643,12 +564,6 @@ PRED_KEYS = ("type", "file_path", "table", "predict", "predict_score")
 
 
 def _task_predictions(cfg, paths, tasks, detected, notes, cache):
-    """{source: dict(task, file, rel, shows, by_path, by_name)} like ``store.INFERENCE``: each task's predictions.
-
-    [Prediction] keys apply to every task; ``<Task>_<Key>`` (``Object_detection_Predict``, ``Instance_segmentation_File_path``, …)
-    overrides one for that task. With task folders under [Path] Results (Results/classification/…), CSV results
-    are looked for in the task's own folder. With several tasks, a source's name starts with its task.
-    """
     pcfg = cfg.get("prediction", {})
     task_dirs = any(_task_dir(paths["results"], t) for t in TASKS)
     out = {}
@@ -663,14 +578,10 @@ def _task_predictions(cfg, paths, tasks, detected, notes, cache):
 
 
 def _predictions(pc, cfg, results, detected, notes, cache, where, task=None):
-    """One task's predictions (``pc``: its [Prediction] keys). Type = "CSV": ``File_path`` is a result file name /
-    glob under ``results`` (or an absolute path), one source per match. "DB": ``Table``, matched by its file-path
-    column. ``Predict`` / ``Predict_score`` name the class / score columns. A CSV / table listing a file once per
-    task (a task column) gives ``task`` the values of its own rows."""
     kind = str(pc.get("type") or "").lower()
     shows = {k: pc[k] for k in ("predict", "predict_score") if pc.get(k)}
     if kind == "csv":
-        if results is None and not Path(str(pc.get("file_path") or "")).is_absolute():  # an absolute file needs no folder
+        if results is None and not Path(str(pc.get("file_path") or "")).is_absolute():
             notes.append(f"{where}: no folder for it under Path.Results")
             return {}
         under = "Path.Results" + (f"/{results.name}" if results and results.parent == pc["results_root"] else "")
@@ -696,7 +607,6 @@ def _predictions(pc, cfg, results, detected, notes, cache, where, task=None):
     return {}
 
 
-# ---------------------------------------------------------------- git
 def _git_info(root, cfg):
     top = _run("git", "rev-parse", "--show-toplevel", cwd=root).strip()
     if not top:
@@ -713,7 +623,6 @@ def _git_info(root, cfg):
         sync = "no upstream"
     remote = _run("git", "remote", "get-url", "origin", cwd=top).strip() or cfg.get("remote", "")
     n = _run("git", "rev-list", "--count", "HEAD", cwd=top).strip() or "0"
-    # local vs remote: the branch's upstream as of the last fetch (Laboard doesn't fetch on its own)
     upstream = _run("git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}", cwd=top).strip()
     local_only = set(_run("git", "rev-list", f"{upstream}..HEAD", cwd=top).split()) if upstream else set()
     remote_only = set(_run("git", "rev-list", f"HEAD..{upstream}", cwd=top).split()) if upstream else set()
@@ -722,9 +631,8 @@ def _git_info(root, cfg):
     head_short = _run("git", "rev-parse", "--short", "HEAD", cwd=top).strip()
     authors = len(_run("git", "shortlog", "-sn", "HEAD", cwd=top).splitlines())
 
-    # --name-status, not --numstat: line counts diff every blob and take seconds on repos with big files
     fmt = "\x1e%h\x1f%s\x1f%an\x1f%ar\x1f%ad\x1f%D\x1f%H"
-    revs = ["HEAD", upstream] if upstream else ["HEAD"]  # remote-only commits are listed too
+    revs = ["HEAD", upstream] if upstream else ["HEAD"]
     log = _run("git", "log", "-100", "--name-status", f"--format={fmt}", "--date=format:%b %d, %H:%M", *revs, "--",
                cwd=top, timeout=30)
     status = {"A": ("added", ""), "D": ("", "deleted"), "R": ("renamed", ""), "C": ("copied", "")}
@@ -769,11 +677,6 @@ def _remove_snapshots():
 
 
 def _snapshot(top, rev, rels):
-    """Extract ``rels`` (paths in the repo) as they were at ``rev`` into a temp folder.
-
-    Only reads the repository (``git archive``); the working tree, index and HEAD are untouched.
-    Returns (folder, full sha, the rels git tracked at that commit).
-    """
     sha = _run("git", "rev-parse", "--verify", f"{rev}^{{commit}}", cwd=top).strip()
     if not sha:
         raise ValueError(f"unknown commit {rev}")
@@ -795,10 +698,7 @@ def _snapshot(top, rev, rels):
     return dest, sha, tracked
 
 
-# ---------------------------------------------------------------- models
 def _model_group(rel):
-    """The model a file under paths.models belongs to: its first folder, or the first two under a task folder
-    (Models/classification/<model>/…)."""
     parts = Path(rel).parts
     return "/".join(parts[:2]) if len(parts) > 2 and _task_id(parts[0]) in TASK_IDS else parts[0]
 
@@ -808,7 +708,7 @@ def _models(models_dir, mcfg):
             for e in (e.lower() for e in mcfg.get("extensions", []))} or MODEL_EXT
     files = [(dp, f) for dp, fs in _walk(models_dir) for f in fs]
     picked = [(dp, f) for dp, f in files if Path(f).suffix.lower() in exts]
-    if not picked:  # no known checkpoint format: list everything
+    if not picked:
         picked = files
     if not picked:
         return None
@@ -832,7 +732,7 @@ def _models(models_dir, mcfg):
         fmts[m["fmt"]].append(m["ext"])
     formats = [(f, len(e), " ".join(sorted(set(e)))[:40], FORMAT_COLORS[i % len(FORMAT_COLORS)])
                for i, (f, e) in enumerate(sorted(fmts.items(), key=lambda kv: -len(kv[1])))]
-    if len(formats) > len(FORMAT_COLORS):  # fold the tail into one "Other" segment
+    if len(formats) > len(FORMAT_COLORS):
         rest = formats[len(FORMAT_COLORS) - 1:]
         formats = formats[:len(FORMAT_COLORS) - 1] + [("Other", sum(n for _, n, _, _ in rest), "", FORMAT_COLORS[-1])]
     groups = defaultdict(list)
@@ -849,7 +749,6 @@ def _models(models_dir, mcfg):
                    "positive", "Found")])
 
 
-# ---------------------------------------------------------------- runs
 def _flatten(d, prefix=""):
     for k, v in d.items():
         key = f"{prefix}{k}"
@@ -863,7 +762,6 @@ def _flatten(d, prefix=""):
 
 
 def _read_config(p):
-    """dict from a json / yaml / toml file, or None."""
     try:
         if p.suffix == ".json":
             with open(p) as f:
@@ -872,10 +770,10 @@ def _read_config(p):
             with open(p, "rb") as f:
                 d = tomllib.load(f)
         else:
-            import yaml  # optional; yaml configs are skipped without it
+            import yaml
             with open(p) as f:
                 d = yaml.safe_load(f)
-    except Exception:  # unreadable or malformed (incl. yaml.YAMLError, no yaml installed): skip the file
+    except Exception:
         return None
     return d if isinstance(d, dict) else None
 
@@ -916,8 +814,6 @@ def _run_detail(run_dir, name, git, runs_dir):
 
 
 def _runs(runs_dir, git):
-    """``git``: dict(top, rev, repo=runs_dir's place in the repo) to look up each run's last commit, or None."""
-    """Every folder (up to RUN_DEPTH deep) that holds config files is a run; runs don't nest."""
     out, run_dirs = [], []
     for dp, _ in _walk(runs_dir, RUN_DEPTH):
         if any(dp.is_relative_to(r) and dp != r for r in run_dirs if r != runs_dir):
@@ -948,7 +844,6 @@ def _runs(runs_dir, git):
                 detected=[("Hyperparameter", f"{runs_dir.name}/ · {len(out)} set{'s' if len(out) != 1 else ''}", "positive", "Found")])
 
 
-# ---------------------------------------------------------------- results
 def _results(results_dir):
     files = []
     for dp, fs in _walk(results_dir):
@@ -990,9 +885,7 @@ def _results(results_dir):
     return dict(RESULT_FILES=rows, RESULT_PATHS=paths, RESULT_ROOT=f"{results_dir.name}/", dash=dash, detected=detected)
 
 
-# ---------------------------------------------------------------- labels / inference per data file
 def _index(rows, path_col, shows, base):
-    """(by_path, by_name): dict(values={key: row[column] for shows}) per data file path / file name."""
     by_path, by_name = {}, {}
     for r in rows:
         p = r.get(path_col)
@@ -1006,16 +899,6 @@ def _index(rows, path_col, shows, base):
 
 
 def _inference(name, shows, results_dir, path_col=None, what="[Labels] Result_file", under="Path.Results", task=None):
-    """Inference columns from result files: ``[labels]`` (also read when spelled ``[lables]``) and
-    ``[prediction] type = "csv"``.
-
-    ``name`` is a file name, relative path or glob under paths.results (or an absolute path); every
-    match is one source, e.g. one ``inference.csv`` per model folder. ``shows`` maps a key to the column
-    shown for it, e.g. ``{"infer": "classification"}``; ``path_col`` names the file-path column (guessed
-    when None). Rows match data files by path, or by file name when paths differ. The ground truth stays
-    the data's own label; a label column in the result file isn't read. ``task``: a file listing a file once per
-    task (a task column) gives the values of that task's rows. Returns ({source: dict}, notes).
-    """
     if not name:
         return {}, [f"{what} not set"]
     if Path(name).is_absolute():
@@ -1041,13 +924,12 @@ def _inference(name, shows, results_dir, path_col=None, what="[Labels] Result_fi
             notes.append(f"{_rel(f, results_dir)}: no column {', '.join(lost)}")
         by_path, by_name = _index(_task_rows(rows, cols["path"], task) if task else rows, cols["path"], shows, _folder_of(f))
         inside = results_dir is not None and f.is_relative_to(results_dir)
-        src = _rel(f.parent, results_dir) if inside and f.parent != results_dir else f.name  # a file given outside: its name
+        src = _rel(f.parent, results_dir) if inside and f.parent != results_dir else f.name
         sources[src] = dict(file=str(f), rel=_rel(f, results_dir.parent if results_dir else f.parent),
                             shows=shows, by_path=by_path, by_name=by_name)
     return sources, notes
 
 
-# ---------------------------------------------------------------- entry point
 def _restore():
     global _original
     if _original is None:
@@ -1059,26 +941,17 @@ def _restore():
 def _set(name, value):
     cur = getattr(store, name)
     if isinstance(cur, dict) and isinstance(value, dict):
-        cur.clear()  # keep identity: pages bind e.g. ``D = store.DASH`` at import
+        cur.clear()
         cur.update(value)
     else:
         setattr(store, name, value)
 
 
 def _read_toml(p, text=None):
-    """The project toml (``text``, else the file) with every name lower case and [Path] read as [paths]
-    (``tomledit.normalize``); a bare word value (``data = DB``) is read as a string."""
     return tomledit.normalize(tomledit.parse(p.read_text() if text is None else text))
 
 
 def load(toml_path, commit=None, text=None):
-    """Read ``toml_path`` and fill ``store`` with the project's data. Returns a list of notes.
-
-    ``commit``: show the project as it was at that commit (paths inside the repo are read from a
-    snapshot of it, db rows are cut at its time). ``text``: the project file's content to use instead
-    of what's on disk (values edited in Setting; the file itself is never written). On any error
-    ``store`` keeps what it held before and the error is raised.
-    """
     before = {k: copy.deepcopy(getattr(store, k)) for k in _PATCHED}
     try:
         toml_path = Path(toml_path).expanduser().resolve()
@@ -1092,11 +965,8 @@ def load(toml_path, commit=None, text=None):
 
 
 def _copy_remote(cfg, notes):
-    """[Data] / [Label] / [Prediction] files (and an older-format Path.Data table file) written host:path → a local
-    copy (``remote.copy``), read like a local file."""
     for sec in ("data", "label", "prediction", "paths"):
         for k, v in cfg.get(sec, {}).items():
-            # Models / Hyperparameter / Results: REMOTE_COPY
             if not remote.split(v) or sec == "paths" and (k != "data" or Path(v).suffix.lower() not in TABLE_EXT):
                 continue
             try:
@@ -1109,12 +979,10 @@ def _copy_remote(cfg, notes):
 def _load(toml_path, cfg, commit, text=None):
     base = toml_path.parent
     notes, detected, dash = [], [], {}
-    remote.use(base, cfg)  # its [host] sections: how to log in to host:path values
+    remote.use(base, cfg)
     _copy_remote(cfg, notes)
     _sqlite_paths(cfg, base)
     proj, gcfg, pcfg = cfg.get("project", {}), cfg.get("git", {}), cfg.get("paths", {})
-    # [Project] Task (one task or several): [Data] / [Label] / [Prediction] say where data, labels and predictions
-    # are (see _task_data); without one, the older paths.data / [db] / [labels] format
     tasks = _tasks(proj.get("task"), notes)
     task_mode = bool(tasks)
     _set("TASKS", tasks)
@@ -1122,12 +990,11 @@ def _load(toml_path, cfg, commit, text=None):
     if task_mode:
         ref, db_key = dcfg.get("file_path") if str(dcfg.get("type", "")).lower() == "csv" else None, None
     else:
-        # paths.data naming a toml table (data = "DB" → [DB]) reads rows from that database only
         ref = pcfg.get("data")
         db_key = ref.lower() if isinstance(ref, str) and ref.lower() not in RESERVED and isinstance(cfg.get(ref.lower()), dict) else None
     values = {k: ref if k == "data" else pcfg.get("hyperparameter" if k == "runs" else k)
-              for k in ("data", "models", "runs", "results")}  # [Path] Hyperparameter → paths["runs"]
-    remotes = {k: v for k, v in values.items() if k in REMOTE_COPY and remote.split(v)}  # host:path, copied over ssh below
+              for k in ("data", "models", "runs", "results")}
+    remotes = {k: v for k, v in values.items() if k in REMOTE_COPY and remote.split(v)}
     paths = {k: None if (k == "data" and db_key) or k in remotes else _resolve(v, base) for k, v in values.items()}
     root = _resolve(proj.get("root"), base) or next((p for p in paths.values() if p), base)
     name = proj.get("name") or root.name
@@ -1140,7 +1007,6 @@ def _load(toml_path, cfg, commit, text=None):
     else:
         detected.append(("Git repository", str(root), "warning", "Not found"))
 
-    # an older commit: read paths from a snapshot of it; what git doesn't track can't be shown as of then
     repo_paths, missing, view = dict(paths), {}, None
     if commit:
         if not git:
@@ -1173,7 +1039,7 @@ def _load(toml_path, cfg, commit, text=None):
     if task_mode:
         d = _task_data(cfg, paths, base, tasks, detected, notes, as_of, db_cache)
     else:
-        db = {k: v for k, v in cfg.get(db_key or "db", {}).items() if v not in (None, "")}  # all empty: no database
+        db = {k: v for k, v in cfg.get(db_key or "db", {}).items() if v not in (None, "")}
         d = _load_data(db, dcfg, paths, base, detected, notes, as_of=as_of)
     if d:
         for k in ("DATA_FOLDERS", "CLASSES", "SPLIT_TOTALS", "SPLIT_SOURCE", "SPLIT_OVERLAP"):
@@ -1212,7 +1078,7 @@ def _load(toml_path, cfg, commit, text=None):
         _set("INFERENCE", inference)
         what = f"[Prediction] Type = {pred.get('type')} · {pred.get('table') or pred.get('file_path') or '—'}"
         files = {os.path.normpath(r["path"]) for r in rows}
-        found = []  # (task, data files with at least one prediction value in some source of it)
+        found = []
         for t in tasks:
             n = len({p for src in inference.values() if src["task"] == t for p, rec in src["by_path"].items()
                      if any(v not in (None, "") for v in rec["values"].values())} & files)
