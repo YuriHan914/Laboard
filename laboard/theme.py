@@ -11,6 +11,8 @@ from PyQt6.QtGui import QColor, QFont, QFontDatabase, QIcon, QPixmap
 # Fixed brand tokens (tokens/colors.css)
 WISE_GREEN = "#9fe870"
 WISE_GREEN_PALE = "#e2f6d5"
+WISE_GREEN_ACTIVE = "#cdffad"
+SAGE, SAGE_HOVER = "#e8ebe6", "#d9ddd6"
 INK = "#0e0f0c"
 INK_DEEP = "#163300"
 BODY = "#454745"

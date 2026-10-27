@@ -1,11 +1,15 @@
-<p align="center">
-  <img src="../assets/LABOARD_HOME.png" alt="Home (light)" width="900"/>
-  <img src="../assets/LABOARD_HOME_DARK.png" alt="Home (dark)" width="900"/>
-</p>
-
 # Home
-
 [English](../en/home.md) | **한국어**
+
+<table>
+  <tr>
+    <td align="center" width="50%"><img src="../assets/LABOARD_HOME.png" alt="Home (light)"/><br/><sub>Light</sub></td>
+    <td align="center" width="50%"><img src="../assets/LABOARD_HOME_DARK.png" alt="Home (dark)"/><br/><sub>Dark</sub></td>
+  </tr>
+</table>
+
+
+
 
 Home은 프로젝트를 한눈에 보는 페이지입니다. 가운데에는 Data, Model, Latest hyperparameter, Result 네 개의 요약
 카드가 있고, 오른쪽에는 프로젝트의 git 기록이 있습니다. 각 카드의 **Open** 링크를 누르면 해당 페이지로
@@ -19,7 +23,7 @@ Home은 프로젝트를 한눈에 보는 페이지입니다. 가운데에는 Dat
 
 | 행 | 내용 |
 | --- | --- |
-| 이름 | `[project] name` (없으면 루트 폴더 이름)과 작업 종류 필 (Data 카드 참고) |
+| 이름 | `[Project] Name` (없으면 루트 폴더 이름)과 작업 종류 필 (Data 카드 참고) |
 | Remote | `origin` URL |
 | Branch | 현재 브랜치와 upstream 대비 상태 (예: `ahead 1`, `up to date with origin/main`). 예전 커밋을 볼 때는 `detached at <hash> · read-only snapshot` |
 | Commits | 커밋 수와 기여자 수 |
@@ -27,20 +31,20 @@ Home은 프로젝트를 한눈에 보는 페이지입니다. 가운데에는 Dat
 
 ### Root folders
 
-프로젝트 루트 한 행과 `[paths]` 항목(`data`, `models`, `runs`, `results`)마다 한 행씩 있고, 루트 기준
-상대 경로가 함께 표시됩니다. **Open**을 누르면 파일 관리자에서 그 폴더를 엽니다. 폴더가 없으면 상태
+프로젝트 루트 한 행과, 프로젝트 파일이 가리키는 곳마다 한 행씩 있습니다: **Data**(`[Data]` csv), **Models**,
+**Hyperparameter**, **Results**(`[Path]`). 루트 기준 상대 경로가 함께 표시되고, 원격 경로는 `<host>:<경로>`로 보입니다. **Open**을 누르면 파일 관리자에서 그 폴더를 엽니다. 폴더가 없으면 상태
 바에 메시지가 뜹니다.
 
 ## 요약 카드
 
 카드는 두 열로 배치됩니다. 가운데 영역이 좁으면 한 열로 바뀌고 스크롤됩니다.
-보여 줄 내용이 없는 카드는 무엇이 없는지 알려 줍니다. 예: *No model files found in paths.models.*
+보여 줄 내용이 없는 카드는 무엇이 없는지 알려 줍니다. 예: *No model files found in Path.Models.*
 
 ### Data
 
 | 부분 | 내용 |
 | --- | --- |
-| 작업 필 | 데이터의 `task`/`object` 열에서 가장 많은 값. 그런 열이 없으면 파일에 레이블이 있을 때 *Classification*, 없으면 *Unlabeled* |
+| 작업 필 | `[Project] Task`의 task들. 예: *Classification · Object detection*. 이전 형식에서는 데이터의 `task`/`object` 열에서 가장 많은 값, 그런 열이 없으면 파일에 레이블이 있을 때 *Classification*, 없으면 *Unlabeled* |
 | 설명 | 데이터를 읽은 출처, 클래스 수, 파일 확장자 |
 | 타일 | 데이터에 `trained`/`used` 열이 있으면 **Total files · Used in training · Not yet trained**. 없으면 **Total files · Classes · Folders** |
 | Files added per month | 최근 8개월의 막대 차트. 날짜는 데이터에 `created` 열이 있으면 그 값을, 없으면 각 파일의 수정 시각을 사용 |
@@ -50,7 +54,7 @@ Home은 프로젝트를 한눈에 보는 페이지입니다. 가운데에는 Dat
 
 | 부분 | 내용 |
 | --- | --- |
-| 타일 | **Models** (`paths.models` 바로 아래 항목 수), **Files** (모델 파일 수), **Last updated** (가장 최근 파일이 얼마나 지났는지) |
+| 타일 | **Models** (`[Path] Models` 바로 아래 항목 수, task 폴더가 있으면 `<task>/<model>` 수), **Files** (모델 파일 수), **Last updated** (가장 최근 파일이 얼마나 지났는지) |
 | Format | 파일 형식(PyTorch, ONNX, safetensors 등)별 누적 막대와 범례. 형식마다 개수와 확장자 표시 |
 | 표 | 최근에 바뀐 순서로 최대 8개 모델: **Model · Formats · Files · Size** |
 
@@ -63,7 +67,7 @@ Home은 프로젝트를 한눈에 보는 페이지입니다. 가운데에는 Dat
 
 ### Result
 
-`paths.results` 아래 어디든 `accuracy.csv`라는 파일이 있는지 찾습니다.
+`[Path] Results` 아래 어디든 `accuracy.csv`라는 파일이 있는지 찾습니다.
 
 **`accuracy.csv`가 있으면** 카드에 다음이 표시됩니다.
 

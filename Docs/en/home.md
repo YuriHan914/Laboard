@@ -1,9 +1,10 @@
+# Home
+
 <p align="center">
   <img src="../assets/LABOARD_HOME.png" alt="Home (light)" width="900"/>
   <img src="../assets/LABOARD_HOME_DARK.png" alt="Home (dark)" width="900"/>
 </p>
 
-# Home
 
 **English** | [한국어](../ko/home.md)
 
@@ -18,7 +19,7 @@ If no project is loaded, Home shows *No project loaded* and points you to Settin
 
 | Row | Shows |
 | --- | --- |
-| Name | `[project] name` (or the root folder's name), with the task as a pill (see the Data card) |
+| Name | `[Project] Name` (or the root folder's name), with the task as a pill (see the Data card) |
 | Remote | The `origin` URL |
 | Branch | The current branch and how it compares with its upstream (e.g. `ahead 1`, `up to date with origin/main`). While viewing an older commit: `detached at <hash> · read-only snapshot` |
 | Commits | The number of commits and of contributors |
@@ -26,20 +27,21 @@ If no project is loaded, Home shows *No project loaded* and points you to Settin
 
 ### Root folders
 
-This list has one row for the project root and one for each `[paths]` entry (`data`, `models`, `runs`,
-`results`), with its path relative to the root. **Open** shows the folder in your file manager. If the
+This list has one row for the project root and one for each place the project file points at: **Data** (the
+`[Data]` csv), **Models**, **Hyperparameter** and **Results** (`[Path]`), with its path relative to the root. A
+remote path shows as `<host>:<path>`. **Open** shows the folder in your file manager. If the
 folder doesn't exist, a message appears in the status bar.
 
 ## Summary cards
 
 The cards sit in two columns. When the centre is narrow they drop to one column and scroll.
-When a card has nothing to show, it says what is missing, for example *No model files found in paths.models.*
+When a card has nothing to show, it says what is missing, for example *No model files found in Path.Models.*
 
 ### Data
 
 | Part | Shows |
 | --- | --- |
-| Task pill | The most common value of the data's `task`/`object` column. With no such column: *Classification* if the files have labels, otherwise *Unlabeled* |
+| Task pill | The tasks of `[Project] Task`, e.g. *Classification · Object detection*. Older format: the most common value of the data's `task`/`object` column; with no such column, *Classification* if the files have labels, otherwise *Unlabeled* |
 | Note | Where the data was read from, the number of classes and the file extensions |
 | Tiles | If the data has a `trained`/`used` column: **Total files · Used in training · Not yet trained**. Otherwise: **Total files · Classes · Folders** |
 | Files added per month | Bars for the last 8 months. The date comes from the data's `created` column when there is one, otherwise from each file's modification time |
@@ -49,7 +51,7 @@ When a card has nothing to show, it says what is missing, for example *No model 
 
 | Part | Shows |
 | --- | --- |
-| Tiles | **Models** (top-level entries under `paths.models`), **Files** (model files), **Last updated** (the newest file's age) |
+| Tiles | **Models** (top-level entries under `[Path] Models`, or `<task>/<model>` with task folders), **Files** (model files), **Last updated** (the newest file's age) |
 | Format | A stacked bar and legend of the file formats (PyTorch, ONNX, safetensors, …), with a count and extensions for each |
 | Table | Up to 8 models, most recently changed first: **Model · Formats · Files · Size** |
 
@@ -63,7 +65,7 @@ This card shows the hyperparameter set (training run) that was changed most rece
 
 ### Result
 
-This card looks for a file named `accuracy.csv` anywhere under `paths.results`.
+This card looks for a file named `accuracy.csv` anywhere under `[Path] Results`.
 
 **When `accuracy.csv` exists**, the card shows:
 

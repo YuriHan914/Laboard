@@ -1109,7 +1109,7 @@ def _copy_remote(cfg, notes):
 def _load(toml_path, cfg, commit, text=None):
     base = toml_path.parent
     notes, detected, dash = [], [], {}
-    remote.use(base)
+    remote.use(base, cfg)  # its [host] sections: how to log in to host:path values
     _copy_remote(cfg, notes)
     _sqlite_paths(cfg, base)
     proj, gcfg, pcfg = cfg.get("project", {}), cfg.get("git", {}), cfg.get("paths", {})
@@ -1173,7 +1173,8 @@ def _load(toml_path, cfg, commit, text=None):
     if task_mode:
         d = _task_data(cfg, paths, base, tasks, detected, notes, as_of, db_cache)
     else:
-        d = _load_data(cfg.get(db_key or "db", {}), dcfg, paths, base, detected, notes, as_of=as_of)
+        db = {k: v for k, v in cfg.get(db_key or "db", {}).items() if v not in (None, "")}  # all empty: no database
+        d = _load_data(db, dcfg, paths, base, detected, notes, as_of=as_of)
     if d:
         for k in ("DATA_FOLDERS", "CLASSES", "SPLIT_TOTALS", "SPLIT_SOURCE", "SPLIT_OVERLAP"):
             _set(k, d[k])

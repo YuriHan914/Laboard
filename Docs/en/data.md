@@ -1,8 +1,10 @@
+# Data
+
 <p align="center">
   <img src="../assets/LABOARD_DATA.png" alt="Data" width="900"/>
 </p>
 
-# Data
+
 
 **English** | [한국어](../ko/data.md)
 
@@ -20,7 +22,7 @@ Three sections of the project file (toml) decide what the Data page shows.
 | Section | Decides | Per task? |
 | --- | --- | --- |
 | `[Data]` | The raw data files | One list shared by every task |
-| `[Label]` | Each file's ground truth | One `<Task>_Label` per task ([Label setup](#label-setup-label)) |
+| `[Label]` | Each file's ground truth | One `Label` column shared by every task; a task column gives each task its own rows ([Label setup](#label-setup-label)) |
 | `[Prediction]` | Each file's model prediction | Read for each task ([Prediction setup](#prediction-setup-prediction)) |
 
 This format applies when `[Project] Task` names one or more of the tasks below ([Task: single / multi](#task-single--multi)).
@@ -28,15 +30,16 @@ With an empty Task, the [older format](#older-format-task-is-empty) is used.
 
 | `[Data] Type` | Where the file list comes from | Split |
 | --- | --- | --- |
-| `DB` | A database table (one row = one file) | A split column (`type`, `status`, …) |
+| `DB` | A database table (one row = one file): Supabase, PostgreSQL, MySQL, MariaDB, SQLite, MSSQL, Oracle | A split column (`type`, `status`, …) |
 | `CSV` | A csv listing the files (one row = one file) | A split column (`type`, `status`, …) |
-| `Folder` | A scan of a dataset folder | The split folder in the path |
 
-- **Type values:** `DB`, `CSV` and `Folder` are read in any case (`csv` works too). An empty `Type` shows
+- **Type values:** `DB` and `CSV` are read in any case (`csv` works too). An empty `Type` shows
   `[Data] Type is not set` in the status bar.
 - **How much is read:** up to 200,000 rows (files), whatever the source.
 - **Where the ground truth comes from:** always `[Label]`. A label column in a prediction result file is never
   used as the ground truth.
+- **Remote files:** a file path can be on a server, e.g. `ssh:/data/img/0001.jpg`
+  ([Data on a remote server](#data-on-a-remote-server-ssh)).
 - **Required columns and label formats:** see [Data format: required columns and label values](#data-format-required-columns-and-label-values).
 
 ### Task: single / multi
@@ -44,11 +47,11 @@ With an empty Task, the [older format](#older-format-task-is-empty) is used.
 `[Project] Task` names one task, or several separated by commas.
 
 ```toml
-Task = "classification"                                   # a single task
-Task = "classification, segmentation, object detection"   # several tasks
+Task = "classification"                                            # a single task
+Task = "classification, instance segmentation, object detection"   # several tasks
 ```
 
-- **Tasks:** `classification`, `object detection` (or `detection`), `segmentation`, `instance segmentation`,
+- **Tasks:** `classification`, `object detection` (or `detection`), `instance segmentation`,
   `semantic segmentation`, `panoptic segmentation`, `anomaly detection`, `pose-estimation` (or `keypoints`). Case,
   spaces, `_` and `-` don't matter (`Object_detection` works). An unknown name is noted and skipped.
 - **One raw data source:** `[Data]` is shared by every task; what differs per task is the ground truth
@@ -62,7 +65,7 @@ Task = "classification, segmentation, object detection"   # several tasks
   ├── Runs/classification/<model>/      # [Path] Hyperparameter
   └── Results/
       ├── classification/<model>/inference.csv
-      ├── segmentation/
+      ├── instance segmentation/
       ├── object detection/
       ├── anomaly detection/
       └── pose-estimation/
@@ -72,7 +75,7 @@ Task = "classification, segmentation, object detection"   # several tasks
   - CSV predictions are looked for under `Results/<task>/`.
 - **Data page:** with several tasks, a **Task** drop-down in the viewer header picks whose ground truth and
   predictions are shown. File info lists every task's ground truth as `Label · <task>`.
-- **Home:** the task name lists every task (e.g. *Classification · Segmentation · Object detection*).
+- **Home:** the task name lists every task (e.g. *Classification · Instance segmentation · Object detection*).
 
 ### Changing the settings
 
@@ -80,39 +83,39 @@ Task = "classification, segmentation, object detection"   # several tasks
 
 1. In **Setting → Load project file**, pick the toml and click **Load**.
 2. In the **Fields** list below, click **Edit** next to `[Data]` → `Type`.
-3. Pick `CSV` / `DB` / `Folder` in the popup's drop-down and click **Save**.
+3. Pick `CSV` / `DB` in the popup's drop-down and click **Save**.
 4. Fill in the keys that Type needs (table below) the same way. For a path, the folder icon in the box
    opens a file / folder picker.
 
 - **Applied at once:** Save reloads the project, so the Data page shows the change right away.
-- **The file is left alone:** the toml on disk isn't changed. To keep the change, use **Save as…** to write
+- **The file is left alone:** the toml on disk isn't changed. To keep the change, use **Save Changed** to write
   a new toml. Clicking **Load** again goes back to what the file says.
 - **Rows that depend on Type:**
-  - `Table` is shown only for `Type = "DB"`, `File_path` only when it isn't DB, `[Data] Raw` only when it isn't Folder.
-  - `[Label]` gets a `<Task>_Label` row for each task of `[Project] Task`.
+  - `Table` is shown only for `Type = "DB"`, `File_path` only when it isn't DB.
   - The `[DB]` section is shown only while `[Project] DB = True`.
 - **Descriptions:** hover a key or its value to see what to put in it.
 
 **Editing the toml file**
 
-Edit the toml in any editor, then click **Load** in Setting. `template.toml` at the repository root lists
-every key with empty values; copy it to start. Section and key names are read in any case (`[Path]` and
+Edit the toml in any editor, then click **Load** in Setting. To start one, use **New** in Setting or copy
+`template.toml` at the repository root, which lists every key. Section and key names are read in any case (`[Path]` and
 `[paths]` are the same).
 
 ### `[Data]` keys at a glance
 
-| Key | `DB` | `CSV` | `Folder` | Meaning |
-| --- | --- | --- | --- | --- |
-| `Type` | required | required | required | `DB` / `CSV` / `Folder` |
-| `Table` | required | – | – | Table name, `table` or `schema.table` |
-| `File_path` | – | required | required | CSV: the file list · Folder: the dataset folder |
-| `Raw` | optional | optional | – | Column with each raw file's path (e.g. `file_path`). Empty: found automatically (table below) |
+| Key | `DB` | `CSV` | Meaning |
+| --- | --- | --- | --- |
+| `Type` | required | required | `DB` / `CSV` |
+| `Table` | required | – | Table name, `table` or `schema.table` |
+| `File_path` | – | required | The csv listing the files |
+| `Raw` | optional | optional | Column with each raw file's path (e.g. `file_path`). Empty: found automatically (table below) |
 
 Paths such as `File_path` are absolute, or relative to the folder that holds the toml.
 
 ### Type = DB
 
-Each row of a database table is one data file. A local Supabase or any Postgres works.
+Each row of a database table is one data file. Supabase, PostgreSQL, MySQL, MariaDB, SQLite, MSSQL and Oracle
+work (read through SQLAlchemy).
 
 ```toml
 [Project]
@@ -120,7 +123,7 @@ DB = True                          # True to use a database
 
 [DB]                               # the connection
 DB = "supabase"
-DB_ip = "http://127.0.0.1:54323/"  # a Supabase URL → its Postgres on port 54322
+DB_ip = "http://127.0.0.1:54322/"  # a Supabase URL → its Postgres on port 54322
 
 [Data]
 Type = "DB"
@@ -130,10 +133,28 @@ Raw = "file_path"
 
 - **Connection (`[DB] DB_ip`):**
   - A Supabase URL (such as `http://127.0.0.1:54323/`) connects to the Postgres on that host. The defaults are
-    port `54322` and `postgres` for the user, password and database.
-  - A `postgresql://user:password@host:5432/dbname` address works too.
-  - When the defaults don't fit, add `Port`, `User`, `Password` or `Database` to `[DB]`. `Limit` sets the
-    most rows read.
+    port `54322` and `postgres` for the user, password and database; when they don't fit, add `Port`, `User`,
+    `Password` or `Database` to `[DB]`.
+  - Any other database takes its address (URL). Its driver is installed separately
+    (`pip install "laboard[mysql]"`, …).
+
+    | Database | `DB_ip` | extra |
+    | --- | --- | --- |
+    | PostgreSQL | `postgresql://user:pw@host:5432/db` | `postgres` |
+    | MySQL | `mysql://user:pw@host:3306/db` | `mysql` |
+    | MariaDB | `mariadb://user:pw@host:3306/db` | `mysql` |
+    | SQLite | `sqlite:///data.db` (relative to the toml) / `sqlite:////abs/path/data.db` | none |
+    | MSSQL | `mssql://user:pw@host:1433/db` | `mssql` |
+    | Oracle | `oracle://user:pw@host:1521/?service_name=XEPDB1` | `oracle` |
+
+  - To pick another driver, write the SQLAlchemy URL as is, e.g. `mysql+mysqldb://…` or
+    `mssql+pyodbc://…?driver=ODBC+Driver+18+for+SQL+Server`, and install that driver yourself.
+  - URL-encode a password holding `@`, `/` or `:` (`@` → `%40`).
+- **`Table`:** `table` or `schema.table` (MSSQL `dbo.voc`, Oracle `OWNER.voc`, MySQL `db.voc`). A mixed-case name
+  is quoted, so it must match exactly.
+- **Column names:** the columns named in `Raw`, `Label` and `Predict` are found in any case (Oracle stores them
+  upper case).
+- **How much is read:** at most `Limit` rows (default 200,000), ordered by the first column.
 - **`[Project] DB`:** when it is `False`, the database isn't read and the note
   `[Data] Type = DB, but [Project] DB = False` appears.
 - **Columns the table needs:**
@@ -180,47 +201,39 @@ Raw = "file_path"
 - **Wrong path:** when `File_path` isn't a file, the note `[Data] File_path … is not a file` appears.
 - **No path column found:** name it in `[Data] Raw`.
 
-### Type = Folder
+### Data on a remote server (`ssh:`)
 
-The dataset folder is scanned, one row per file. The split and the ground truth come from the folders.
+A file path in the csv or DB table can start with `ssh:`. Laboard then logs in to the server with the `[ssh]`
+section of the project file and reads the file there.
 
-```toml
-[Data]
-Type = "Folder"
-File_path = "/mnt/data/Dataset/semiconductor_waifer_defect_classification"
+```csv
+file_path,type,label
+ssh:/data/wafer/train/Normal/0001.jpg,train,Normal
+ssh:~/wafer/valid/Scratch/0102.jpg,valid,Scratch
+ssh:~/wafer/test/Donut/0203.jpg,test,Donut
 ```
 
-- **Folder layout:** `<split>/<label>/<file>`.
+```toml
+# the project file (e.g. my_project.toml)
+[ssh]                    # logs in with: ssh -i ~/.ssh/my-key ubuntu@1.2.3.4
+key_name = "my-key"
+user_name = "ubuntu"
+ip = "1.2.3.4"
+```
 
-  ```text
-  semiconductor_waifer_defect_classification/
-  ├── train/
-  │   ├── Normal/   image_001.jpg …
-  │   └── Scratch/  image_101.jpg …
-  ├── valid/
-  │   └── …
-  └── test/
-      └── …
-  ```
-
-- **Finding the split folder:** the first folder in the path named like a split (`train`, `valid`, `test`, …,
-  see split values below). The **folder right after it** is the ground truth.
-  - More folders above are fine: `root/2024/train/Normal/x.jpg` → split `train`, label `Normal`.
-  - More folders below are fine too: `train/Normal/sub/x.jpg` still has the label `Normal`.
-- **No ground truth when:**
-  - there is no split folder, as in `Normal/x.jpg`: the split is Unused and there is no label;
-  - the order is reversed (`Normal/train/x.jpg`) or there is no label folder (`train/x.jpg`).
-- **`[Data] Raw`:** not used. Classification ground truth comes from this layout with `[Label] Type = "Folder"`.
-- **Files left out:**
-  - code, notebooks and markdown: `.py`, `.pyc`, `.ipynb`, `.sh`, `.md`
-  - table files: `.csv`, `.tsv`, `.jsonl`, `.parquet`
-  - hidden files and `__pycache__`
-  - with `[Prediction] Type = "Folder"`, the prediction format (`.txt` / `.json`), so prediction files kept
-    next to the data aren't taken for data
+- **Paths:** `ssh:/…` is an absolute path on the server, and `ssh:~/…` a path under the login user's home folder.
+- **What is read:** loading reads only each remote file's size and time, in one ssh call. The Data page copies the
+  file it shows, and its thumbnails, when it shows them, and keeps them until Laboard exits.
+- **A csv on the server:** `File_path = "ssh:~/wafer/data.csv"` copies the csv at load. Relative paths inside it
+  are read under its folder on the server.
+- **Other servers:** `gcloud:`, `az:`, `aws:` and any `abc:` prefix log in with the section of the same name. See
+  [Setting · Files on a remote server](setting.md#files-on-a-remote-server) for every login and its keys.
+- **When the server can't be reached:** the files are still listed with their split and label, but can't be shown.
+  The status bar says why, and Detected shows *Remote data files · Unreachable*.
 
 ### Columns
 
-For Type = DB / CSV, each meaning's column is found by name (any case; the first match wins).
+Each meaning's column is found by name (any case; the first match wins).
 
 | Meaning | Names recognised |
 | --- | --- |
@@ -252,70 +265,55 @@ The sidebar's folders group files by their directory without the split part, so 
 
 ## Label setup (`[Label]`)
 
-The ground truth picks its source with `Type` (`CSV` / `DB` / `Folder`) too, with one `<Task>_Label` key per task.
+The ground truth picks its source with `Type` (`CSV` / `DB`) too, and `Label` names its one column, shared by every task.
 
-| Key | `CSV` | `DB` | `Folder` | Meaning |
-| --- | --- | --- | --- | --- |
-| `Type` | required | required | required | `CSV` / `DB` / `Folder` |
-| `File_path` | optional | – | optional | CSV: the labels csv (empty: `[Data]`'s) · Folder: the folder the label folders are in (empty: the data folder) |
-| `Table` | – | optional | – | The labels table (empty: `[Data]`'s) |
-| `<Task>_Label` | column | column | see below | `Classification_Label`, `Segmentation_Label`, `Object_detection_Label`, `Anomaly_detection_Label`, `Pose_estimation_Label` |
-| `Label` | column | column | – | The column of every task that has no `<Task>_Label` of its own |
+| Key | `CSV` | `DB` | Meaning |
+| --- | --- | --- | --- |
+| `Type` | required | required | `CSV` / `DB` |
+| `File_path` | optional | – | The labels csv (empty: `[Data]`'s) |
+| `Table` | – | optional | The labels table (empty: `[Data]`'s) |
+| `Label` | column | column | The ground-truth column (e.g. `label`) |
 
-- **CSV / DB:** `<Task>_Label` is the column with that task's ground truth. Rows are matched to the data files by
-  the raw-file path column (`Raw`, empty: `[Data] Raw`). Labels in the `[Data]` csv or table are read from there.
-- **One row per file and task:** when the csv / table has a task column (`task` or `object`) and lists a file once
-  per task, each task reads its label from the row whose task matches, and `[Data]` lists each file once. Such a
-  table usually needs only `Label = "label"`.
-- **Json labels** (coco format, as made by `Src/raw_to_csv`) are drawn over the image on the Data page:
+- **Columns:** rows are matched to the data files by the raw-file path column (`Raw`, empty: `[Data] Raw`).
+  Labels in the `[Data]` csv or table are read from there.
+- **Several tasks:** give the csv / table a task column (`task` or `object`) and list a file once per task. Each
+  task reads `Label` from the row whose task matches, and `[Data]` lists each file once
+  ([Table shape](#table-shape-one-row-per-file--one-row-per-task)).
+- **Json labels** (coco format, as made by `Data_prep/raw_to_csv`) are drawn over the image on the Data page:
   `["cat", "dog"]` (class names), `[{"category", "bbox": [x, y, w, h]}]` (boxes),
   `[{"category", "segmentation"}]` (polygons or RLE), `[{"category", "bbox", "keypoints"}]` (keypoints, with the
   coco skeleton for 17 points) and `{"mask_path", "segments_info"}` (a coco panoptic png). Text shows a summary
   such as `20 objects · chair ×5, vase ×4`. A json prediction is drawn on the Predict pane the same way.
-- **Folder:**
-  - classification takes the ground truth from the `split/<class>/file` layout of `[Data] Type = "Folder"`; the
-    value can be anything.
-  - another task's `<Task>_Label` is a folder of label files (relative to `File_path`, or absolute). Each data file
-    gets the label file with the same name (without the extension), and its file name is shown as the ground truth.
-- **A task without one:** with no `<Task>_Label`, the note `[Label] no <Task>_Label` appears and that task has no
-  ground truth.
+- **No ground truth:** with no `Label`, the note `[Label] no Label` appears and nothing has ground truth. With a
+  task column but no rows for a task, only that task has none.
 
 ```toml
 [Label]                                 # a single task, CSV
 Type = "CSV"
 File_path = "/mnt/data/github/Anomaly-Detection/test_projects/Data/semiconductor_AD_df.csv"
-Classification_Label = "label"
+Label = "label"
 
-[Label]                                 # several tasks, DB
+[Label]                                 # several tasks, DB (task + json label columns)
 Type = "DB"
-Table = "semiconductor"
-Classification_Label = "label"
-Segmentation_Label = "seg_label"
-Object_detection_Label = "obj_label"
+Table = "voc"
+Label = "label"
 
-[Label]                                 # several tasks, one row per file and task (task + json label columns)
+[Label]                                 # several tasks, CSV (task + json label columns)
 Type = "CSV"
 File_path = "/mnt/data/Dataset/COCO/COCO_2017_dataset.csv"
 Label = "label"
-
-[Label]                                 # several tasks, Folder
-Type = "Folder"
-File_path = "/mnt/data/Dataset/semiconductor_waifer_defect_classification"
-Classification_Label = "label"          # the class folders
-Segmentation_Label = "seg_label"        # label files under File_path/seg_label/
 ```
 
 ## Data format: required columns and label values
 
-The columns a csv / table needs when `[Data] Type` is `CSV` or `DB`, and how to store values in the label column.
-`Folder` is read from the folder layout and needs no columns ([Type = Folder](#type--folder)).
+The columns a csv / table needs, and how to store values in the label column.
 
 ### Required and optional columns
 
 | Column | Needed | Name (any case) | Value |
 | --- | --- | --- | --- |
-| File path | **required** | the one named in `[Data] Raw`, else `file_path`, `data_path`, `path`, `image`, `filename`, … ([Columns](#columns)) | The raw file's path. DB: an **absolute path** · CSV: absolute, or relative to the csv file's folder |
-| Label | required to see the ground truth | the one named in `[Label] Label` or `<Task>_Label` (e.g. `label`) | See [Label values](#label-values) below |
+| File path | **required** | the one named in `[Data] Raw`, else `file_path`, `data_path`, `path`, `image`, `filename`, … ([Columns](#columns)) | The raw file's path. DB: an **absolute path** · CSV: absolute, or relative to the csv file's folder. Either can be on a server: `ssh:/…` ([remote data](#data-on-a-remote-server-ssh)) |
+| Label | required to see the ground truth | the one named in `[Label] Label` (e.g. `label`) | See [Label values](#label-values) below |
 | Task | **required** when a file has one row per task | `task`, `object` | A task name from `[Project] Task` (e.g. `classification`, `detection`) |
 | Split | optional (recommended) | `type`, `status`, `split`, `subset`, `set` | `train` / `valid` (`val`, `validation`) / `test`. Missing or anything else: Unused |
 | Created | optional | `create_date`, `created_at`, `created`, `date`, `timestamp` | ISO format `2024-01-05 10:00:00`, or a DB timestamp. Missing: the file's modified time |
@@ -325,16 +323,16 @@ The columns a csv / table needs when `[Data] Type` is `CSV` or `DB`, and how to 
 - **No file-path column, or values that don't look like paths:** nothing is read and the note
   `no file-path column found` appears.
 - **Rows with an empty path** are skipped.
-- **No label column:** the files show up without ground truth and the note `[Label] no <Task>_Label` appears.
+- **No label column:** the files show up without ground truth and the note `[Label] Label: no column …` appears.
 
 ### Table shape: one row per file / one row per task
 
-Labels can be stored in two shapes.
+There is always one label column (`[Label] Label`); with several tasks, a task column splits the rows.
 
-| Shape | A row is | Label column | `[Label]` setting |
+| Shape | A row is | Label column | Use it for |
 | --- | --- | --- | --- |
-| One row per file | one file | a column per task (e.g. `cls_label`, `det_label`) | `Classification_Label = "cls_label"`, `Object_detection_Label = "det_label"` |
-| One row per task | one file × one task | one column (e.g. `label`) + the task column | `Label = "label"` |
+| One row per file | one file | one column (e.g. `label`) | a single task (with several, every task gets the same value) |
+| One row per task | one file × one task | one column (e.g. `label`) + the task column | several tasks |
 
 - **When it counts as one row per task:** the table has a task column and the same file path appears in more than
   one row. Each task then reads its label from the row with its task value, and `[Data]` lists the file once.
@@ -353,13 +351,15 @@ the same format are drawn on the Predict pane the same way.
 | --- | --- | --- |
 | classification | a string, or a list of class names | `cat` · `["cat", "dog"]` |
 | object detection | `[{"category", "bbox"}]` | `[{"category": "cat", "bbox": [10, 20, 100, 80]}]` |
-| segmentation (instance / semantic) | `[{"category", "segmentation"}]` | `[{"category": "cat", "segmentation": [[10, 20, 110, 20, 60, 100]]}]` |
+| instance segmentation | `[{"category", "segmentation"}]`, one object per instance | `[{"category": "cat", "segmentation": [[10, 20, 110, 20, 60, 100]]}]` |
+| semantic segmentation | `[{"category", "segmentation"}]`, one object per category covering all of its area | `[{"category": "cat", "segmentation": [[10, 20, 110, 20, 60, 100], [200, 30, 260, 30, 230, 90]]}]` |
 | pose-estimation | `[{"category", "bbox", "keypoints"}]` | `[{"category": "person", "bbox": [5, 5, 50, 120], "keypoints": [30, 12, 2, 0, 0, 0, …]}]` |
 | panoptic segmentation | `{"mask_path", "segments_info"}` | `{"mask_path": "/data/panoptic/0001.png", "segments_info": [{"id": 3226956, "category": "person", "bbox": [413, 158, 53, 138]}]}` |
 
 - **Coordinates:** image pixels, origin at the top left, x to the right, y down.
 - **bbox:** `[x, y, w, h]` (top-left corner, width, height), not `[x1, y1, x2, y2]`.
-- **segmentation:** a list of polygons `[[x1, y1, x2, y2, …], …]` (an object may have several, each with 3+ points),
+- **instance / semantic segmentation:** the same format, drawn the same way; they differ only in what one object
+  covers. `segmentation` is a list of polygons `[[x1, y1, x2, y2, …], …]` (an object may have several, each with 3+ points),
   or uncompressed RLE `{"counts": [...], "size": [h, w]}` (column-major, starting with a run of 0s). Compressed RLE
   (a string `counts`) isn't drawn.
 - **keypoints:** `[x, y, v]` repeated for each keypoint. Points with `v = 0` aren't drawn; with 17 points the coco
@@ -383,7 +383,7 @@ the same format are drawn on the Predict pane the same way.
 
 ### Examples
 
-A one-row-per-task csv and its settings (the format `Src/raw_to_csv` writes):
+A one-row-per-task csv and its settings (the format `Data_prep/raw_to_csv` writes):
 
 ```csv
 file_path,label,task,type,create_date
@@ -407,42 +407,25 @@ File_path = "/data/dataset.csv"
 Label = "label"
 ```
 
-With one row per file, each task has its own label column:
-
-```csv
-file_path,type,cls_label,det_label
-/data/img/0001.jpg,train,cat,"[{""category"": ""cat"", ""bbox"": [10, 20, 100, 80]}]"
-```
-
-```toml
-[Label]
-Type = "CSV"
-File_path = "/data/dataset.csv"
-Classification_Label = "cls_label"
-Object_detection_Label = "det_label"
-```
-
 ## Prediction setup (`[Prediction]`)
 
 Predictions pick their source with `Type` too, independently of the data (e.g. data from DB, predictions
 from CSV).
 
 - **Per task:** every key applies to every task. To set one for a single task, write `<Task>_<Key>`, e.g.
-  `Segmentation_File_path`, `Segmentation_Predict`, `Object_detection_Type`.
+  `Instance_segmentation_File_path`, `Instance_segmentation_Predict`, `Object_detection_Type`.
 - **Source names:** with several tasks, a source's name in the Results drop-down starts with its task, and only
   the picked task's sources are listed.
 
-| Key | `CSV` | `DB` | `Folder` | Meaning |
-| --- | --- | --- | --- | --- |
-| `Type` | required | required | required | `CSV` / `DB` / `Folder` |
-| `File_path` | required | – | required | CSV: result file name / glob · Folder: folder of prediction files |
-| `Table` | – | required | – | Table holding the predictions |
-| `Format` | – | – | optional | `txt` (default) / `json` |
-| `Predict` | required | required | optional (json) | Predicted-class column (json: key) |
-| `Predict_score` | optional | optional | optional (json) | Score column (json: key) |
+| Key | `CSV` | `DB` | Meaning |
+| --- | --- | --- | --- |
+| `Type` | required | required | `CSV` / `DB` |
+| `File_path` | required | – | Result file name / glob |
+| `Table` | – | required | Table holding the predictions |
+| `Predict` | required | required | Predicted-class column |
+| `Predict_score` | optional | optional | Score column |
 
-In Setting, `Table` is shown only for `Type = "DB"`, `File_path` only when it isn't DB, and `Format` only for
-`Type = "Folder"`.
+In Setting, `Table` is shown only for `Type = "DB"`, and `File_path` only when it isn't DB.
 
 ### Prediction Type = CSV
 
@@ -477,55 +460,27 @@ Predict_score = "AD_score"
   it is queried once.
 - **Matching the data:** by the table's file-path column.
 
-### Prediction Type = Folder
-
-```toml
-[Prediction]
-Type = "Folder"
-File_path = "/mnt/data/predictions"
-Format = "txt"
-```
-
-- **Where prediction files go:** one per data file, looked up in this order:
-  1. under `File_path`, at the **same place with the same name** as in the data folder
-     (`test/Normal/x.jpg` → `test/Normal/x.txt`);
-  2. otherwise anywhere under `File_path` with the **same file name** (without the extension).
-- **`Format = "txt"`:** the first line holds `<class> [score]`, separated by spaces or a comma.
-
-  ```text
-  Normal 0.93
-  ```
-
-- **`Format = "json"`:** an object, or the first object of a list.
-
-  ```json
-  {"class": "Normal", "score": 0.93}
-  ```
-
-  - `Predict` / `Predict_score` can name the keys.
-  - Left empty, the class is the first of `predict`, `prediction`, `class`, `label`, `pred`, and the score the
-    first of `predict_score`, `score`, `confidence`, `prob`, `probability`.
-- **No files:** when there are no prediction files at all, the note `[Prediction] no .txt files under …`
-  appears.
-
 ## Common notes
 
 Notes shown in the status bar and Setting's Detected card, and what to do about them.
 
 | Note | Cause / fix |
 | --- | --- |
-| `[Data] Type is not set` | Set `[Data] Type` to `DB`, `CSV` or `Folder` |
+| `[Data] Type is not set` | Set `[Data] Type` to `DB` or `CSV` |
 | `[Data] Type = DB, but [Project] DB = False` | Set `[Project] DB` to `True` |
 | `DB … unavailable (…)` | The database can't be reached. Check `[DB] DB_ip`, that the server runs, and the table name |
+| `DB … unavailable (No module named …; install it with: pip install "laboard[…]")` | The database's driver isn't installed. Install the extra it names (e.g. `pip install ".[mysql]"`) |
 | `[Data] File_path … is not a file` | The CSV path is wrong. Pick the file again |
 | `… no file-path column found` | No path column found. Name it in `[Data] Raw` |
-| `[Label] <Task>_Label: no column …` | The labels csv / table has no such column. Check its name |
-| `[Label] <Task>_Label: no folder …` / `no label files in …` | The Folder label folder is missing or empty |
-| `[Label] no <Task>_Label: …` | That task has no `<Task>_Label` |
+| `[Label] Label: no column …` | The labels csv / table has no such column. Check its name |
+| `[Label] no Label: …` | `[Label] Label` is not set |
 | `[Project] Task: unknown task …` | Not a task name. Use one from [Task](#task-single--multi) |
 | `[Prediction] … no column …` | A column named in `Predict` / `Predict_score` isn't in the results |
-| `[Prediction] no .txt files under …` | The prediction folder has no prediction files. Check `File_path` and `Format` |
 | `[Prediction] <task> File_path … not found under Path.Results/<task>` | The task's results folder has no result file |
+| `Path.Data … is not a table file` | Older format: `[Path] Data` is a folder. Point it at a csv / tsv / jsonl / parquet |
+| `the project file has no [<host>] section` | Add a section named like the path's prefix to the project file, e.g. `[ssh]` for `ssh:…` |
+| `[<host>] in the project file: no …` | A required key is missing or empty, e.g. `ip` in `[ssh]` |
+| *Remote data files · Unreachable* (Detected) | The server can't be reached. Check the login section in the project file (`[ssh]`, `[gcloud]`, …), and that the server is on |
 | `No data rows found` | Nothing could be read because of one of the above |
 
 ## Older format (Task is empty)
@@ -535,9 +490,8 @@ the first of these sources that works:
 
 1. **A database table:** `[DB] Table`. If the database can't be reached, the status bar says so and the
    next source is tried. `[Path] Data = "DB"` (a section name) reads only that database.
-2. **A table file:** the csv / tsv / jsonl / parquet that `[Path] Data` points at, or one inside that folder.
-   A file found automatically in a folder must point at real files.
-3. **A folder scan:** the `[Path] Data` folder, read like [Type = Folder](#type--folder).
+2. **A table file:** the csv / tsv / jsonl / parquet that `[Path] Data` points at. A folder isn't read; the note
+   `Path.Data … is not a table file` appears.
 
 - **Predictions:** come from the `[Labels]` section (`Result_file`, …).
 - **Without `[Labels]`:** the data's own `predict` column is used as the prediction.
@@ -592,7 +546,7 @@ In **Both**, each pane keeps its own zoom and position. The zoom lasts until you
 
 ### Prediction colours
 
-The label is always the data's own ground truth (the `label` column, or the folder name for a scan).
+The label is always the data's own ground truth (`[Label]`, or the `label` column in the older format).
 
 Predictions come from `[Prediction]` (`[Labels]` in the older format). Rows are matched by path, or by
 file name when the paths differ. The prediction box has one line each for `Predict` and `Predict_score`
@@ -616,7 +570,6 @@ when it can't be read, it says `none · predict column is empty`.
 - A stacked bar of the splits.
 - One row per split with its count, percentage, and how the split was decided. For example:
   - `type = 'train'` (from a split column)
-  - `split from folder name` (from a folder scan)
   - `no split column`
 - Click a split row to filter to that split, which is the same as the sidebar buttons. Click it again
   to show all splits.

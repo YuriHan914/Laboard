@@ -345,8 +345,46 @@ class HLine(QWidget):
 
 
 # ------------------------------------------------------------------ controls
+class Overlay(QWidget):
+    """A modal layer over the window, below a frameless title bar, dimmed (rgba(14,15,12,.45)): clicks don't reach
+    the page under it and Esc closes it. A child of the window, so it covers whatever page is rendered; the window
+    keeps its ``dialog`` on top (MainWindow.render)."""
+
+    def __init__(self, win):
+        super().__init__(win)
+        self.win = win
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        win.installEventFilter(self)
+        self._fit()
+
+    def _fit(self):
+        top = 40 if getattr(self.win, "frameless", False) else 0
+        self.setGeometry(0, top, self.win.width(), self.win.height() - top)
+
+    def eventFilter(self, obj, e):
+        if obj is self.win and e.type() == QEvent.Type.Resize:
+            self._fit()
+        return False
+
+    def paintEvent(self, e):
+        QPainter(self).fillRect(self.rect(), QColor(14, 15, 12, 115))
+
+    def mousePressEvent(self, e):
+        e.accept()
+
+    def keyPressEvent(self, e):
+        if e.key() == Qt.Key.Key_Escape:
+            self.close()
+
+    def open(self):
+        self.show()
+        self.raise_()
+        self.setFocus()
+
+
 class Button(QPushButton):
-    """Wise DS Button: secondary (soft fill), primary (green) or tertiary (text only), sm / md."""
+    """Wise DS Button: secondary (soft fill), primary (green) or tertiary (text only), sm / md; and the Load row's
+    outline (ink border), sage (sage, green in dark) and solid (the tab colour) pills."""
 
     @staticmethod
     def _metrics(size, compact=False, pad=None):
@@ -359,15 +397,24 @@ class Button(QPushButton):
     def height_for(size, compact=False, pad=None):
         return Button._metrics(size, compact, pad)[2]
 
-    def __init__(self, text, variant="secondary", size="sm", on_click=None, compact=False, pad=None):
+    def __init__(self, text, variant="secondary", size="sm", on_click=None, compact=False, pad=None, min_width=0):
         super().__init__(text)
         fs, pad, hgt = self._metrics(size, compact, pad)
         self.setFont(font(fs, 600))
-        bg, hover, fg = {"primary": (theme.WISE_GREEN, theme.WISE_GREEN_PALE, theme.INK),
-                         "tertiary": ("transparent", T.surf2, T.ink)}.get(variant, (T.surf2, T.grid, T.ink))
+        dark = theme.current == "dark"
+        bg, hover, fg, border = {
+            "primary": (theme.WISE_GREEN, theme.WISE_GREEN_PALE, theme.INK, "none"),
+            "tertiary": ("transparent", T.surf2, T.ink, "none"),
+            "outline": ("transparent", T.surf2, T.ink, f"1px solid {T.ink}"),
+            "sage": (theme.WISE_GREEN_ACTIVE if dark else theme.SAGE, theme.WISE_GREEN if dark else theme.SAGE_HOVER,
+                     theme.INK, "1px solid transparent"),
+            "solid": (T.tab, "#d4d8d1" if dark else "#2a2b28", T.tabfg, f"1px solid {T.tab}"),
+        }.get(variant, (T.surf2, T.grid, T.ink, "none"))
         self.setFixedHeight(hgt)
+        if min_width:
+            self.setMinimumWidth(min_width)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setStyleSheet(f"QPushButton{{background:{bg};color:{fg};border:none;border-radius:{min(24, hgt // 2)}px;"
+        self.setStyleSheet(f"QPushButton{{background:{bg};color:{fg};border:{border};border-radius:{min(24, hgt // 2)}px;"
                            f"padding:0 {pad[1]}px;}}QPushButton:hover{{background:{hover};}}"
                            f"QPushButton:pressed{{padding-top:1px;}}")
         if on_click:

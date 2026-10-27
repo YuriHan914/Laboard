@@ -6,11 +6,11 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import QFileDialog, QLineEdit, QStyle
 
 from .. import store, theme, tomledit
+from ..newproject import CreateProject
 from ..widgets import (Box, Button, Combo, Flow, HLine, Label, LineEdit, Scroll, Segmented, Select, badge, breakable, card,
                        hbox, set_tip, vbox, wrap)
 
 ROW_H = Button.height_for("sm")  # inputs, value text and buttons of a field row share one height
-LOAD_PAD = (8, 16)  # Browse / Load: the md text in tighter padding than md's (12, 24): 40px high, narrower
 
 
 def _toml_lines(lines):
@@ -201,10 +201,17 @@ def _keep_scroll(app, scroll):
     return scroll
 
 
+def _new(app):
+    """Open the New project file window (``newproject.CreateProject``)."""
+    app.dialog = CreateProject(app)
+    app.dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+    app.dialog.open()
+
+
 def build(app):
     path = store.PROJECT.get("toml", "")
-    path_edit = LineEdit("Choose a laboard .toml project file", size=15, pad=(7, 16), mono=True)
-    path_edit.setFixedHeight(Button.height_for("md", pad=LOAD_PAD))  # same height as Browse / Load so the row lines up
+    path_edit = LineEdit("Choose a laboard .toml project file", size=15, pad=(11, 16), mono=True)
+    path_edit.setFixedHeight(Button.height_for("md"))  # same height as Browse / Load / New so the row lines up
     path_edit.setText(app.s.pending_toml if app.s.pending_toml is not None else path)
     path_edit.textChanged.connect(lambda t: setattr(app.s, "pending_toml", t))  # survives re-renders until loaded
 
@@ -227,12 +234,13 @@ def build(app):
     path_edit.returnPressed.connect(load_typed)
     load = card(
         Label("Load project file", 32, 900, display=True, spacing=-0.5), 10,
-        Label("A project file tells Laboard where your data, models, runs and logs live, and which git repo to track.",
-              14, 400, "body", wrap=True), 18,
+        Label("A project file tells Laboard where your data, models, runs and logs live, and which git repo to track. "
+              "New makes one from a form of every section.", 14, 400, "body", wrap=True), 18,
         Label("Project file", 14, 600, lh=20), 8,
         # field and buttons share one row of equal height, so their tops and bottoms line up
-        hbox((path_edit, 1), 12, Button("Browse", size="md", on_click=browse, pad=LOAD_PAD), 5,
-             Button("Load", "primary", "md", on_click=load_typed, pad=LOAD_PAD), 1,  # Load sits 1px in from the edge
+        hbox((path_edit, 1), 12, Button("Browse", "outline", "md", on_click=browse, min_width=110), 12,
+             Button("Load", "sage", "md", on_click=load_typed, min_width=110), 12,
+             Button("New", "solid", "md", on_click=lambda: _new(app), min_width=110),
              align=Qt.AlignmentFlag.AlignVCenter),
         pad=(32, 28, 32, 28))
 

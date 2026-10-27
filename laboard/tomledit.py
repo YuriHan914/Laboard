@@ -137,7 +137,7 @@ HELP = {
     ("paths", "hyperparameter"): "Folder with one sub-folder per training run, each holding json / yaml / toml "
                                  "configs (and trainer_state.json); shown on the Hyperparameter page. "
                                  "\"host:path\" (e.g. \"gcloud:~/laboard/Runs\") reads it over ssh, logging in "
-                                 "with the [host] section of key/ssh.key next to this file.",
+                                 "with the [host] section of this file (e.g. [gcloud] instance_name, zone).",
     ("paths", "results"): "Folder with result files (csv, logs, images, TensorBoard events, …) shown on the Result "
                           "page. [Prediction] Type = \"CSV\" looks for its path here.",
     ("db", "db"): "Database kind, shown only: \"supabase\", \"postgresql\", \"mysql\", \"mariadb\", \"sqlite\", "

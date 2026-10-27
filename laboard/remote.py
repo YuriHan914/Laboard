@@ -1,16 +1,17 @@
 """Files and folders on another machine, read over ssh: a value written ``host:path`` (``gcloud:~/laboard/Runs``,
 ``gcloud:/data/img/0001.jpg``), in the project file or in the file-path column of a data table (csv or db).
 
-How to log in to ``host``: the ``[host]`` section of ``key/ssh.key`` next to the project file. A section holds
-``key = value`` lines or one login command line, and its type is its ``type`` key, else its name:
+How to log in to ``host``: the ``[host]`` section of the project file itself (as loaded, with Setting's edits).
+A section holds ``key = value`` lines, or a ``command`` with the login command line, and its type is its ``type``
+key, else its name:
 
 * ``[gcloud]`` instance_name, zone: ``gcloud compute ssh <instance_name> --zone <zone>``;
 * ``[az]`` vm_name, resource-group: ``az ssh vm --name <vm_name> --resource-group <resource-group>``;
 * ``[aws]`` instance-id, instance-os-user, ssh-public-key, availability-zone: the public key is sent with
   ``aws ec2-instance-connect send-ssh-public-key``, then ``ssh -i <its private key> <instance-os-user>@<public ip>``;
 * ``[ssh]`` key_name, user_name, ip: ``ssh -i ~/.ssh/<key_name> <user_name>@<ip>``;
-* a command line (``ssh -i ~/.ssh/key user@1.2.3.4``, ``gcloud compute ssh my-vm --zone us-west1-b``, …) is the
-  login itself, in a section of any name.
+* ``command = "<command line>"`` (``ssh -i ~/.ssh/key user@1.2.3.4``, ``gcloud compute ssh my-vm --zone us-west1-b``,
+  …) is the login itself, in a section of any name.
 
 Any other key is passed on as ``--key value`` (``true``: the bare flag), and ``_`` / ``-`` in key names are the same.
 
@@ -21,7 +22,7 @@ one connection (ControlMaster), so a call after the first takes milliseconds ins
 * ``stat``: the sizes and times of remote data files, without copying them;
 * ``fetch`` / ``local``: local copies of remote data files, made when a page shows them and kept until Laboard exits.
 
-Nothing on the remote side is changed. ``use`` (on every project load) says which project the hosts are read from.
+Nothing on the remote side is changed. ``use`` (on every project load) gives the project the hosts are read from.
 """
 import atexit
 import hashlib
@@ -39,12 +40,11 @@ REMOTE = re.compile(r"^([\w.@-]{2,}):(?!//)(.+)$")  # host:path; a single letter
 TIMEOUT = 180
 TAR = "tar cf - --dereference --hard-dereference"  # file contents only: a link entry can't be unpacked from a stream
 
-KEY_FILE = Path("key", "ssh.key")  # login sections, next to the project file
-SECTION = re.compile(r"^\[([^\[\]]+)\]\s*(#.*)?$")
-OPTION = re.compile(r"^([\w.-]+)\s*=\s*(.*)$")
+WHERE = "the project file"  # where login sections are, as error messages name it
 
-_project = dict(base=Path.cwd())
+_project = dict(base=Path.cwd(), cfg={})
 _logins = {}  # host → (kind "ssh" | "gcloud" | "cli", argv, the gcloud login an ssh came from, prepare argv)
+_logged_with = {}  # host → the section its login was made from: an edited section makes a new one
 _copies = {}  # (value, options) → local copy, this load
 _origin = {}  # str(local copy) → the host:path it was copied from
 _stats = {}  # remote file → (size, mtime), this load
@@ -71,11 +71,14 @@ def _cleanup():
         shutil.rmtree(_root, ignore_errors=True)
 
 
-def use(base):
-    """The project being loaded: ``base``, its file's folder (where key/ssh.key is)."""
+def use(base, cfg):
+    """The project being loaded: ``base``, its file's folder; ``cfg``, its parsed toml (names in lower case), whose
+    ``[host]`` sections say how to log in."""
     if base != _project["base"]:
         _logins.clear()
-    _project.update(base=base)
+    _project.update(base=base, cfg=cfg)
+    for host in [h for h in _logins if _section(h) != _logged_with.get(h)]:  # its section changed (Setting edit)
+        del _logins[host]
     _copies.clear()
     _stats.clear()
     _absent.clear()
@@ -123,22 +126,16 @@ def _local(p):
 
 
 # ---------------------------------------------------------------- logging in
-def _sections(f):
-    """{name: (options, command argv)} of a key file's [name] sections; names and keys in lower case, "_" as "-"."""
-    out, cur = {}, None
-    for line in f.read_text(errors="replace").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if m := SECTION.match(line):
-            cur = out.setdefault(m[1].strip().lower(), ({}, []))
-        elif cur is not None:
-            if m := OPTION.match(line):
-                v = " ".join(shlex.split(m[2], comments=True))
-                cur[0][m[1].lower().replace("_", "-")] = {"true": True, "false": False}.get(v.lower(), v)
-            else:
-                cur[1].extend(shlex.split(line, comments=True))
-    return out
+def _section(host):
+    """(options, command argv) of the project file's ``[host]`` section, or None; keys in lower case with "_" as
+    "-", ``command`` split into the argv."""
+    sec = _project["cfg"].get(host.lower())
+    if not isinstance(sec, dict):
+        return None
+    options = {k.lower().replace("_", "-"): v if isinstance(v, bool) else str(v) for k, v in sec.items()
+               if not isinstance(v, dict) and k.lower() != "command"}
+    command = next((v for k, v in sec.items() if k.lower() == "command"), "")
+    return options, shlex.split(str(command))
 
 
 def _flags(options, skip=()):
@@ -153,7 +150,7 @@ def _flags(options, skip=()):
 def _need(name, options, *keys):
     missing = [k for k in keys if not options.get(k)]
     if missing:
-        raise OSError(f"[{name}] in {KEY_FILE}: no {', '.join(missing)}")
+        raise OSError(f"[{name}] in {WHERE}: no {', '.join(missing)}")
     return [str(options[k]) for k in keys]
 
 
@@ -203,20 +200,18 @@ LOGINS = dict(gcloud=_gcloud_login, az=_az_login, aws=_aws_login, ssh=_ssh_login
 
 
 def _login(host):
-    """(kind, argv, prepare argv or None) that logs in to ``host``, from its key file section (see the module doc)."""
-    f = _project["base"] / KEY_FILE
-    if not f.is_file():
-        raise OSError(f"no {KEY_FILE} next to the project file for {host}:")
-    section = _sections(f).get(host.lower())
+    """(kind, argv, prepare argv or None) that logs in to ``host``, from its project file section (see the module
+    doc)."""
+    section = _section(host)
     if section is None:
-        raise OSError(f"{KEY_FILE} has no [{host}] section")
+        raise OSError(f"{WHERE} has no [{host}] section")
     options, command = section
     if command:
         tool = Path(command[0]).name
         return ("gcloud" if tool == "gcloud" else "ssh" if tool == "ssh" else "cli"), command, None
     kind = str(options.get("type") or host).lower()
     if kind not in LOGINS:
-        raise OSError(f"[{host}] in {KEY_FILE}: no login command, and type {kind!r} isn't {' / '.join(LOGINS)}")
+        raise OSError(f"[{host}] in {WHERE}: no login command, and type {kind!r} isn't {' / '.join(LOGINS)}")
     return LOGINS[kind](host, options)
 
 
@@ -244,6 +239,7 @@ def _shared(argv):
 
 def _connection(host):
     if host not in _logins:
+        _logged_with[host] = _section(host)
         kind, argv, prepare = _login(host)
         if prepare:
             _prepare(host, prepare)

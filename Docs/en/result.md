@@ -1,18 +1,22 @@
+# Result
+
 <p align="center">
   <img src="../assets/LABOARD_RESULT.png" alt="Result" width="900"/>
 </p>
 
-# Result
 
 **English** | [한국어](../ko/result.md)
 
-The Result page opens any file under `paths.results`:
+The Result page opens any file under `[Path] Results`:
 
 - metric files become charts and tables
 - logs and json are shown as text
 - images open in a zoomable viewer
 
 You can tick several charts to compare them on one shared axis. Up to 20,000 result files are listed.
+
+`[Path] Results` can be on a server, e.g. `"gcloud:~/project/Results"`. Files under 50 MB are copied at every load
+([Files on a remote server](setting.md#files-on-a-remote-server)).
 
 ## Left sidebar
 
@@ -101,11 +105,35 @@ A plain scroll scrolls the page.
 Every csv / tsv / jsonl file is also shown as a table with all of its columns:
 
 - **Rows read:** up to 20,000. A `+` after the row count means the file has more.
-- **Paging:** 50 rows per page, with **Previous / Next**.
+- **Paging:** 30 rows per page (20 / 30 / 40 / 50 / 100, picked under [Items per page](setting.md#items-per-page) in Setting).
+  Under the table, a page bar: `N rows per page · change in Setting` on the left; **Previous**, the page
+  numbers (first, last, the current one and its neighbours, `…` for a gap) and **Next**; and a page box with **Go**
+  (or Enter) on the right. A number out of range goes to the first or last page.
 - **Column widths:** columns are sized to their contents, and the table scrolls sideways when it is wide.
 - **Folding:** a big table (5 or more columns and 10 or more rows) starts folded. It shows as a
   chart-sized card with the first 6 rows and 5 columns. Click it to unfold it to the full width, and
   click again to fold it.
+
+### Sort, filter and hide columns
+
+In an open table, a column's header opens that column's menu.
+
+- **Sort ascending / Sort descending:** sorts by the column. A column of numbers sorts by value, any other as text
+  (any case); blanks always go last. Picking the current sort again turns sorting off. One column sorts at a time.
+- **Filter:** filters as you type (Enter closes the menu).
+  - Text: keeps the values that hold it (any case), e.g. `abnormal`.
+  - A comparison: `> 0.5`, `>= 10`, `< 3`, `<= 1e-3`, `= 2`, `!= 0`. Values that aren't numbers drop out.
+  - Filters on several columns keep only the rows that pass them all. Empty the box to remove one.
+- **Hide column:** hides the column. The last one shown can't be hidden.
+
+Headers show `↑` / `↓` on the sorted column and `•` on filtered ones. The bar above the table reads like
+`6 of 8 columns · 877 of 7,011 rows`, with two buttons on the right:
+
+- **Columns:** every column with a tick; click one to hide or show it, or **Show all**.
+- **Reset:** clears the sort, the filters and the hidden columns (shown only when something is set).
+
+Sort, filters and hidden columns are kept per file and cleared when you leave the Result page. Changing them goes
+back to the first page.
 
 ## Text and JSON
 

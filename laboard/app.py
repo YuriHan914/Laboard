@@ -5,14 +5,14 @@ import sys
 from types import SimpleNamespace
 
 from PyQt6 import sip
-from PyQt6.QtCore import QEvent, QPoint, QPointF, QRectF, QSettings, Qt, QTimer
+from PyQt6.QtCore import QPoint, QPointF, QRectF, QSettings, Qt, QTimer
 from PyQt6.QtGui import QColor, QPainter, QPen
 from PyQt6.QtWidgets import QApplication, QFrame, QGraphicsDropShadowEffect, QMainWindow, QSizePolicy, QWidget
 
 from . import netronview, project, sidebar, store, theme
 from .pages import data, home, hyperparameter, model, result, setting
 from .theme import T
-from .widgets import (Box, Button, Chevron, Collapsing, Dot, HLine, InfoIcon, Label, Logo, Pill, Scroll, Segmented, SideHandle,
+from .widgets import (Box, Button, Chevron, Collapsing, Dot, HLine, InfoIcon, Label, Logo, Overlay, Pill, Scroll, Segmented, SideHandle,
                       SplashLogo, clear_layout, hbox, mono_span, vbox, wrap)
 
 TABS = [("home", "Home"), ("data", "Data"), ("model", "Model"), ("hyperparameter", "Hyperparameter"), ("result", "Result"), ("setting", "Setting")]
@@ -92,17 +92,13 @@ def in_filter(c, kind):
     return kind == "all" or c[7] in (kind, "both")
 
 
-class Dialog(QWidget):
-    """Modal card over a dimmed window (below the frameless title bar): icon, title, text, an optional ``body``
-    widget (e.g. an input) and buttons: ``actions`` [(text, variant, on_click)], by default one dismiss button.
-    An on_click of None closes the dialog.
-
-    A child of the main window, so it covers whatever page is rendered; MainWindow.render keeps it on top.
-    """
+class Dialog(Overlay):
+    """Modal card over a dimmed window (``Overlay``): icon, title, text, an optional ``body`` widget (e.g. an input)
+    and buttons: ``actions`` [(text, variant, on_click)], by default one dismiss button. An on_click of None closes
+    the dialog."""
 
     def __init__(self, win, title, text, button="Cancel", body=None, actions=None):
         super().__init__(win)
-        self.win = win
         card = Box(bg="surf", radius=24)
         card.setFixedWidth(520)
         card.setGraphicsEffect(QGraphicsDropShadowEffect(blurRadius=64, offset=QPointF(0, 24), color=QColor(14, 15, 12, 89)))
@@ -115,33 +111,6 @@ class Dialog(QWidget):
             buttons.addWidget(Button(text_, variant, on_click=on_click or self.close))
         card.setLayout(vbox(hbox(vbox(icon, "stretch"), 16, (words, 1), margins=(28, 28, 28, 0)), buttons))
         self.setLayout(vbox("stretch", hbox("stretch", card, "stretch"), "stretch"))
-        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        win.installEventFilter(self)
-        self._fit()
-
-    def _fit(self):
-        top = 40 if self.win.frameless else 0
-        self.setGeometry(0, top, self.win.width(), self.win.height() - top)
-
-    def eventFilter(self, obj, e):
-        if obj is self.win and e.type() == QEvent.Type.Resize:
-            self._fit()
-        return False
-
-    def paintEvent(self, e):
-        QPainter(self).fillRect(self.rect(), QColor(14, 15, 12, 115))  # rgba(14,15,12,.45)
-
-    def mousePressEvent(self, e):
-        e.accept()  # the overlay is modal: clicks don't reach the page below
-
-    def keyPressEvent(self, e):
-        if e.key() == Qt.Key.Key_Escape:
-            self.close()
-
-    def open(self):
-        self.show()
-        self.raise_()
-        self.setFocus()
 
 
 class CommitPicker(QFrame):

@@ -1,10 +1,12 @@
+# Hyperparameter
+
 <p align="center">
   <img src="../assets/LABOARD_RUN.png" alt="Hyperparameter" width="900"/>
 </p>
 
-# Hyperparameter
 
-[English](../en/run.md) | **한국어**
+
+[English](../en/hyperparameter.md) | **한국어**
 
 Hyperparameter 페이지는 학습 run 하나의 하이퍼파라미터 세트에 대해 다음을 보여 줍니다.
 
@@ -20,6 +22,8 @@ Hyperparameter 페이지는 학습 run 하나의 하이퍼파라미터 세트에
 - **개수 제한:** 최대 500개까지 읽습니다.
 - **YAML:** PyYAML이 설치되어 있어야 읽고, 없으면 건너뜁니다.
 - **정렬:** 가장 최근에 수정된 run이 맨 앞에 옵니다.
+- **원격:** `[Path] Hyperparameter`는 `"gcloud:~/laboard/Runs"`처럼 서버에 둘 수 있습니다. 불러올 때마다 설정 파일만
+  복사합니다([원격 서버의 파일](setting.md#원격-서버의-파일)).
 - **이름:** `[Path] Hyperparameter` 기준 상대 경로입니다. `[Path] Hyperparameter` 자체가 run이면 설정의 `exp_name`, `run_name`,
   `name` 중 있는 값을, 없으면 폴더 이름을 씁니다.
 
@@ -55,7 +59,17 @@ Hyperparameter 페이지는 학습 run 하나의 하이퍼파라미터 세트에
 ### 머리글
 
 - **Read from source at launch** 옆에 읽은 설정 파일이 나옵니다. 처음 4개를 보여 주고 나머지는 `+N more`로 표시합니다.
-- **Re-read**는 프로젝트 파일을 다시 로드합니다. 설정 변경을 반영할 때 씁니다.
+
+### 검색
+
+머리글의 **Search hyperparameters** 칸에 입력하면 바로 걸러집니다(대소문자 무시).
+
+- **맞는 행:** 키, 값, 출처(설정 파일)에 입력한 글자가 들어 있는 행. 연두색으로 강조됩니다.
+- **섹션 제목이 맞으면** 그 섹션의 행을 모두 보여 줍니다.
+- **카드:** 맞는 행이 있는 카드만 펼쳐진 채로 남고, 머리글의 행 수는 `2 of 45 rows`처럼 바뀝니다. 페이지는 걸러진 행 기준입니다.
+- **개수와 지우기:** 검색 칸 오른쪽에 `N matches`(맞은 행 수)와 **×**(지우기)가 나옵니다.
+- **결과 없음:** `No hyperparameters match “…”.` 카드가 나옵니다.
+- 검색어는 Hyperparameter 페이지를 떠나기 전까지 유지됩니다.
 
 ### 섹션
 
@@ -67,6 +81,7 @@ Hyperparameter 페이지는 학습 run 하나의 하이퍼파라미터 세트에
 - **제목:** 파일 이름을 문장형으로 바꾼 것. 예를 들어 `training_args.json`은 *Training args*가 됩니다.
 - **키:** 중첩된 키는 점으로 이어 펼칩니다. 예: `optimizer.lr`.
 - **긴 값:** 8개보다 긴 리스트는 `[N items]`로, 90자보다 긴 값은 `…`로 잘라서 보여 줍니다.
-- **페이지:** 행이 20개를 넘는 카드는 20개씩 보여 줍니다. 표 아래 **Rows 1–20 of N**과 **Previous / Next**로
-  페이지를 넘기며, 넘겨도 페이지의 스크롤 위치는 그대로입니다. 카드마다 보던 페이지는 Hyperparameter 페이지를
+- **페이지:** 한 페이지보다 행이 많은 카드는 Setting의 [Items per page](setting.md#items-per-page)에서 고른 수(기본 30)씩
+  보여 줍니다. 표 아래 페이지 바는 Result 표와 같습니다(Previous · 페이지 번호 · Next, 페이지 번호 입력과 **Go**).
+  페이지를 넘겨도 페이지의 스크롤 위치는 그대로입니다. 카드마다 보던 페이지는 Hyperparameter 페이지를
   떠나기 전까지 유지되고, 파일마다 최대 2,000개 행까지 읽습니다.

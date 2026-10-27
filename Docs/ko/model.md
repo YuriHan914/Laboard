@@ -1,8 +1,10 @@
+# Model
+
 <p align="center">
   <img src="../assets/LABOARD_MODEL.png" alt="Model" width="900"/>
 </p>
 
-# Model
+
 
 [English](../en/model.md) | **한국어**
 
@@ -11,7 +13,7 @@ Model 페이지는 모델 파일의 그래프를 [Netron](https://netron.app)으
 
 ## 목록에 나오는 파일
 
-`paths.models` 아래에서 알려진 체크포인트 확장자를 가진 파일이 모두 나옵니다.
+`[Path] Models` 아래에서 알려진 체크포인트 확장자를 가진 파일이 모두 나옵니다.
 
 | 형식 | 확장자 |
 | --- | --- |
@@ -28,8 +30,11 @@ Model 페이지는 모델 파일의 그래프를 [Netron](https://netron.app)으
 | CoreML | `.mlmodel` |
 | OpenVINO | `.xml` |
 
-- 일부 확장자만 보려면 `[models] extensions = [".pt", ".onnx"]`로 지정합니다.
+- 일부 확장자만 보려면 프로젝트 파일에 `[Models] Extensions = [".pt", ".onnx"]`를 추가합니다.
 - 일치하는 파일이 없으면 폴더 안의 모든 파일이 나옵니다.
+- task별 폴더(`Models/<task>/<model>/`)가 있으면 `<task>/<model>` 하나를 모델 하나로 셉니다.
+- `[Path] Models`는 `"ssh:~/project/Models"`처럼 서버에 둘 수 있습니다. 불러올 때마다 500 MB 미만 파일을 복사합니다
+  ([원격 서버의 파일](setting.md#원격-서버의-파일)).
 
 ## 왼쪽 사이드바
 
@@ -75,10 +80,10 @@ Model 페이지는 모델 파일의 그래프를 [Netron](https://netron.app)으
 | TensorRT | 엔진 또는 plan 헤더 |
 
 - **파일 시스템에서 가져온 행** (항상 표시):
-  - **Path:** `paths.models`의 상위 폴더 기준 경로.
+  - **Path:** `[Path] Models`의 상위 폴더 기준 경로.
   - **Kind:** 형식.
   - **Modified:** 파일이 마지막으로 바뀐 시각.
-  - **Folder:** `paths.models` 아래의 폴더.
+  - **Folder:** `[Path] Models` 아래의 폴더.
 
 ### Parameters by layer
 

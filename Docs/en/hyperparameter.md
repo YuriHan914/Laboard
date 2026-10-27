@@ -1,10 +1,12 @@
+# Hyperparameter
+
 <p align="center">
   <img src="../assets/LABOARD_RUN.png" alt="Hyperparameter" width="900"/>
 </p>
 
-# Hyperparameter
 
-**English** | [한국어](../ko/run.md)
+
+**English** | [한국어](../ko/hyperparameter.md)
 
 The Hyperparameter page shows one training run's hyperparameter set:
 
@@ -20,6 +22,8 @@ The Hyperparameter page shows one training run's hyperparameter set:
 - **Limit:** up to 500 runs are read.
 - **YAML:** configs are read only if PyYAML is installed; otherwise they are skipped.
 - **Order:** the most recently modified run comes first.
+- **Remote:** `[Path] Hyperparameter` can be on a server, e.g. `"gcloud:~/laboard/Runs"`. Only the config files are
+  copied at every load ([Files on a remote server](setting.md#files-on-a-remote-server)).
 - **Name:** a set's name is its path relative to `[Path] Hyperparameter`. If `[Path] Hyperparameter` is itself a run, its name
   comes from `exp_name`, `run_name` or `name` in its config, otherwise the folder name.
 
@@ -55,7 +59,17 @@ The config here means files whose names contain `config`, `args` or `hparams`.
 ### Header
 
 - **Read from source at launch** lists the config files that were read: the first four, then `+N more`.
-- **Re-read** loads the project file again. Use it to pick up changes to configs.
+
+### Search
+
+Typing in **Search hyperparameters** in the header filters at once (any case).
+
+- **Matching rows:** rows whose key, value or source (config file) holds the text. They are shaded green.
+- **A section whose title matches** shows all of its rows.
+- **Cards:** only cards with rows left stay, opened, and their header reads like `2 of 45 rows`. Pages count the rows found.
+- **Count and clear:** `N matches` (rows matched) and **×** (clear) appear at the right of the box.
+- **Nothing found:** a `No hyperparameters match “…”.` card.
+- The search stays until you leave the Hyperparameter page.
 
 ### Sections
 
@@ -69,6 +83,7 @@ per row, as wide as the column.
 - **Keys:** nested keys are flattened with dots, such as `optimizer.lr`.
 - **Long values:** lists longer than 8 items are shown as `[N items]`, and values longer than 90
   characters are cut with `…`.
-- **Pages:** a card with more than 20 rows shows them 20 at a time. **Rows 1–20 of N** and **Previous / Next**
-  sit under the table; turning a page keeps the page's scroll position, and each card keeps its page until you
+- **Pages:** a card with more rows than fit on a page shows them as many at a time as picked under
+  [Items per page](setting.md#items-per-page) in Setting (30 by default). The page bar under the table is the Result
+  table's (Previous · page numbers · Next, a page box with **Go**); turning a page keeps the page's scroll position, and each card keeps its page until you
   leave the Hyperparameter page. Up to 2,000 rows are read from one file.

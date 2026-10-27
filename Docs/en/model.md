@@ -1,8 +1,10 @@
+# Model
+
 <p align="center">
   <img src="../assets/LABOARD_MODEL.png" alt="Model" width="900"/>
 </p>
 
-# Model
+
 
 **English** | [한국어](../ko/model.md)
 
@@ -11,7 +13,7 @@ and file properties. Laboard reads all of this from the file itself, so no GPU a
 
 ## Which files are listed
 
-Every file under `paths.models` with a known checkpoint extension is listed:
+Every file under `[Path] Models` with a known checkpoint extension is listed:
 
 | Format | Extensions |
 | --- | --- |
@@ -28,8 +30,11 @@ Every file under `paths.models` with a known checkpoint extension is listed:
 | CoreML | `.mlmodel` |
 | OpenVINO | `.xml` |
 
-- To list only some extensions, set `[models] extensions = [".pt", ".onnx"]`.
+- To list only some extensions, add `[Models] Extensions = [".pt", ".onnx"]` to the project file.
 - If no file matches, every file in the folder is listed instead.
+- With one folder per task (`Models/<task>/<model>/`), each `<task>/<model>` counts as one model.
+- `[Path] Models` can be on a server, e.g. `"ssh:~/project/Models"`. Files under 500 MB are copied at every load
+  ([Files on a remote server](setting.md#files-on-a-remote-server)).
 
 ## Left sidebar
 
@@ -75,10 +80,10 @@ These files hold weights but not how the layers connect, so Laboard offers two v
 | TensorRT | Engine or plan header |
 
 - **Rows from the file system**, always shown:
-  - **Path:** relative to the parent of `paths.models`.
+  - **Path:** relative to the parent of `[Path] Models`.
   - **Kind:** the format.
   - **Modified:** when the file last changed.
-  - **Folder:** the folder under `paths.models`.
+  - **Folder:** the folder under `[Path] Models`.
 
 ### Parameters by layer
 
