@@ -2,13 +2,15 @@
 
 
 
-
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/YuriHan914/Laboard/f8e7266ac86c7b964c78548f822705ff3c4854d6/Docs/assets/LABOARD_LOGO_DARK.png"/>
     <img src="https://raw.githubusercontent.com/YuriHan914/Laboard/f8e7266ac86c7b964c78548f822705ff3c4854d6/Docs/assets/LABOARD_LOGO.png" alt="Laboard" width="136"/>
   </picture>
 </p>
+
+
+
 
 <p align="center">
   <a href="https://github.com/YuriHan914/Laboard/blob/master/README.ko.md"><img src="https://img.shields.io/badge/%F0%9F%87%B0%F0%9F%87%B7_%ED%95%9C%EA%B5%AD%EC%96%B4-9fe870?style=for-the-badge" alt="한국어"/></a>
@@ -26,14 +28,14 @@
 </p>
 
 
+
 <br></br>
 
-<table>
-  <tr>
-    <td align="center" width="50%"><img src="https://raw.githubusercontent.com/YuriHan914/Laboard/f8e7266ac86c7b964c78548f822705ff3c4854d6/Docs/assets/LABOARD_HOME.png" alt="Home (light)"/><br/><sub>[Light]</sub></td>
-    <td align="center" width="50%"><img src="https://raw.githubusercontent.com/YuriHan914/Laboard/f8e7266ac86c7b964c78548f822705ff3c4854d6/Docs/assets/LABOARD_HOME_DARK.png" alt="Home (dark)"/><br/><sub>[Dark]</sub></td>
-  </tr>
-</table>
+## 📽 Demo Video
+
+<p align="center">
+  <a href="https://youtu.be/_dGEJo_bTo4"><img src="https://raw.githubusercontent.com/YuriHan914/Laboard/f8e7266ac86c7b964c78548f822705ff3c4854d6/Docs/assets/LABOARD_HOME.png" alt="Home (light)" width="48%" hspace="3.5"/><img src="https://raw.githubusercontent.com/YuriHan914/Laboard/f8e7266ac86c7b964c78548f822705ff3c4854d6/Docs/assets/LABOARD_HOME_DARK.png" alt="Home (dark)" width="48%" hspace="3.5"/></a>
+</p>
 
 <br></br>
 
@@ -77,10 +79,10 @@ pip install -r requirements.txt         # 모든 DB 드라이버 (= pip install 
 
 2. pip install
 ```bash
-pip install .                    # DB 없이 (csv / tsv / jsonl 파일, SQLite)
-pip install ".[postgres]"        # 쓰는 DB의 드라이버를 같이 설치
-pip install ".[mysql,oracle]"    # 여러 개
-pip install ".[all]"             # 모든 DB 드라이버 + parquet
+pip install laboard                    # DB 없이 (csv / tsv / jsonl 파일, SQLite)
+pip install "laboard[postgres]"        # 쓰는 DB의 드라이버를 같이 설치
+pip install "laboard[mysql,oracle]"    # 여러 개
+pip install "laboard[all]"             # 모든 DB 드라이버 + parquet
 ```
 
 | extra | DB | 설치되는 드라이버 |
