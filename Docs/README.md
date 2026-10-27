@@ -9,6 +9,6 @@ Laboard is a desktop experiment tracker for machine-learning projects. It reads 
 | Home | [en/home.md](en/home.md) | [ko/home.md](ko/home.md) |
 | Data | [en/data.md](en/data.md) | [ko/data.md](ko/data.md) |
 | Model | [en/model.md](en/model.md) | [ko/model.md](ko/model.md) |
-| Hyperparameter | [en/run.md](en/run.md) | [ko/run.md](ko/run.md) |
+| Hyperparameter | [en/hyperparameter.md](en/hyperparameter.md) | [ko/hyperparameter.md](ko/hyperparameter.md) |
 | Result | [en/result.md](en/result.md) | [ko/result.md](ko/result.md) |
 | Setting (and the project file reference) | [en/setting.md](en/setting.md) | [ko/setting.md](ko/setting.md) |
