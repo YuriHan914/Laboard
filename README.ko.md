@@ -34,8 +34,9 @@
 ## 📽 Demo Video
 
 <p align="center">
-  <a href="https://youtu.be/_dGEJo_bTo4"><img src="https://raw.githubusercontent.com/YuriHan914/Laboard/f8e7266ac86c7b964c78548f822705ff3c4854d6/Docs/assets/LABOARD_HOME.png" alt="Home (light)" width="48%" hspace="3.5"/><img src="https://raw.githubusercontent.com/YuriHan914/Laboard/f8e7266ac86c7b964c78548f822705ff3c4854d6/Docs/assets/LABOARD_HOME_DARK.png" alt="Home (dark)" width="48%" hspace="3.5"/></a>
+  <a href="https://youtu.be/_dGEJo_bTo4"><img src="https://raw.githubusercontent.com/YuriHan914/Laboard/3d136960ee259e6a69d67411f1d168e5bb002bf2/Docs/assets/laboard_overview.png" alt="Overvieew" width="900"/>
 </p>
+
 
 <br></br>
 
