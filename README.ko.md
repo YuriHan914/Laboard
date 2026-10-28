@@ -35,6 +35,7 @@
 
 <p align="center">
   <a href="https://youtu.be/_dGEJo_bTo4"><img src="https://raw.githubusercontent.com/YuriHan914/Laboard/3d136960ee259e6a69d67411f1d168e5bb002bf2/Docs/assets/laboard_overview.png" alt="Overvieew" width="900"/>
+  </a> 
 </p>
 
 
