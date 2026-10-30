@@ -79,7 +79,7 @@ pip install -r requirements.txt         # all (= pip install -e ".[all]")
 
 ```
 
-2. pip install 
+2. [pip install](https://pypi.org/project/laboard/)
 ```bash
 pip install laboard                    # no database (csv / tsv / jsonl files, SQLite)
 pip install "laboard[postgres]"        # with the driver of the database you use
